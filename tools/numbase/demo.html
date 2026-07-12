@@ -1,0 +1,56 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Number Base Converter — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: 1rem 0 .25rem; }
+  input, button { font: inherit; }
+  input[type=text] { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; }
+  #strip { margin-top: 1rem; background: #f4f4f4; padding: .6rem; }
+  .err { color: #b00020; }
+</style>
+
+<h1>Number Base Converter — demo</h1>
+<p>Type in any field; the other three follow. BigInt underneath, so
+integers of any size convert exactly. <code>_</code> and spaces are
+allowed as digit separators; a leading <code>-</code> works everywhere.</p>
+
+<label for="dec">Decimal</label>
+<input type="text" id="dec" placeholder="255" autocomplete="off" spellcheck="false">
+<label for="hex">Hexadecimal</label>
+<input type="text" id="hex" placeholder="FF" autocomplete="off" spellcheck="false">
+<label for="bin">Binary</label>
+<input type="text" id="bin" placeholder="1111 1111" autocomplete="off" spellcheck="false">
+<label for="oct">Octal</label>
+<input type="text" id="oct" placeholder="377" autocomplete="off" spellcheck="false">
+
+<div id="strip">—</div>
+<p id="err" class="err"></p>
+
+<script type="module">
+  import { convert } from './base-convert.js';
+
+  const $ = (id) => document.getElementById(id);
+  const FIELDS = [['dec', 10], ['hex', 16], ['bin', 2], ['oct', 8]];
+
+  function refresh(src, base) {
+    const others = FIELDS.filter(([k]) => k !== src);
+    $('err').textContent = '';
+    let r = null;
+    try {
+      r = convert($(src).value, base);
+    } catch (e) {
+      $('err').textContent = e.message;
+    }
+    if (!r) {
+      others.forEach(([k]) => { $(k).value = ''; });
+      $('strip').textContent = '—';
+      return;
+    }
+    others.forEach(([k]) => { $(k).value = r[k]; });
+    $('strip').textContent =
+      `bits: ${r.bits} · bytes: ${r.bytes} · as signed: ${r.signed !== null ? r.signed : '—'}`;
+  }
+
+  FIELDS.forEach(([k, base]) => $(k).addEventListener('input', () => refresh(k, base)));
+</script>
