@@ -1,0 +1,174 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Link upload — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 42rem; margin: 3rem auto; padding: 0 1rem; }
+  h2 { margin-top: 2.5rem; }
+  label { display: block; margin: 1rem 0 .25rem; }
+  input, button { font: inherit; }
+  .muted { color: #666; font-size: 13px; }
+  .err { color: #b00020; }
+  .row { border: 1px solid #ccc; padding: .5rem .75rem; margin: .5rem 0; overflow-wrap: anywhere; }
+  .row progress { display: block; width: 100%; margin: .25rem 0; }
+  .row .hash { font-family: monospace; font-size: 12px; color: #666; }
+  #vsheet { max-width: 100%; margin-top: .5rem; border: 1px solid #ccc; }
+</style>
+
+<h1>Link upload — demo</h1>
+<p>Exercises the Link tool's batch queue, concurrency pool, preflight,
+progress and lifetime model. <strong>The uploader below is an injected
+fake</strong> — the module takes the transport as a function parameter, and
+this page passes one that just ticks progress on a timer and mints an
+<code>example.invalid</code> URL. Nothing leaves this page. (The real site
+injects an XHR transport for its upload endpoint; see the README.)</p>
+
+<h2>Batch upload (mock transport, concurrency 3)</h2>
+<label>Files <input type="file" id="files" multiple></label>
+<label>Lifetime minutes <input id="exp" size="10" placeholder="e.g. 30">
+  <span class="muted">presets: <span id="presets"></span> — anything else is
+  rejected by the sanitizer and the field is omitted (server default)</span></label>
+<label><input type="checkbox" id="fail3"> Make every 3rd upload fail (simulated <code>rate_limited</code>)</label>
+<button id="run">Upload batch</button>
+<p id="batchnote" class="muted"></p>
+<div id="rows"></div>
+
+<h2>Video → keyframes ZIP (fully local)</h2>
+<p class="muted">Analyzes the clip, extracts the most-changed keyframes,
+builds a contact sheet and packs a store-only ZIP — entirely in this page;
+the video is never sent anywhere. Cap set to 15&nbsp;MB here.</p>
+<label>Video file <input type="file" id="vfile" accept="video/*"></label>
+<p id="vstatus"></p>
+<p id="vout"></p>
+<img id="vsheet" alt="Contact sheet" hidden>
+
+<script type="module">
+  import {
+    uploadBatch, sanitizeExpiryMinutes, extendChoices,
+    formatBytes, formatDuration, videoToFramesZip,
+    CONCURRENCY, EXPIRY_PRESETS,
+  } from './link-upload.js';
+
+  const $ = (id) => document.getElementById(id);
+  $('presets').textContent = EXPIRY_PRESETS.join(' ');
+
+  /* Injected FAKE transport. Shape-compatible with the real one:
+     (file, { expiresInMinutes, onProgress }) → Promise<record>; reject
+     carries err.code the way the site's XHR transport relays the server's
+     error code. Here it is all setInterval and make-believe. */
+  let seq = 0;
+  function mockUpload(file, { expiresInMinutes, onProgress }){
+    const n = ++seq;
+    return new Promise((resolve, reject) => {
+      let pct = 0;
+      const timer = setInterval(() => {
+        pct = Math.min(100, pct + 4 + Math.random() * 9);
+        onProgress(Math.round(pct));
+        if(pct >= 100){
+          clearInterval(timer);
+          if($('fail3').checked && n % 3 === 0){
+            const e = new Error('simulated'); e.code = 'rate_limited';
+            return reject(e);
+          }
+          const minutes = expiresInMinutes != null ? expiresInMinutes : 10; /* pretend server default */
+          resolve({
+            id: 'demo-' + n,
+            url: 'https://example.invalid/f/demo-' + n,
+            name: file.name, size: file.size, type: file.type,
+            expiresAt: Date.now() + minutes * 60000,
+          });
+        }
+      }, 120);
+    });
+  }
+
+  const rows = new Map();
+  function rowFor(item){
+    let r = rows.get(item.index);
+    if(r) return r;
+    const div = document.createElement('div');
+    div.className = 'row';
+    div.innerHTML = '<span class="name"></span> — <span class="size"></span>' +
+      '<progress max="100" value="0"></progress>' +
+      '<span class="status muted">waiting…</span><br><span class="hash"></span>';
+    div.querySelector('.name').textContent = item.name;
+    div.querySelector('.size').textContent = formatBytes(item.size);
+    $('rows').appendChild(div);
+    r = { bar: div.querySelector('progress'), status: div.querySelector('.status'), hash: div.querySelector('.hash') };
+    rows.set(item.index, r);
+    return r;
+  }
+
+  /* live countdown on done rows, same formatter the site rows tick with */
+  setInterval(() => {
+    document.querySelectorAll('[data-expires]').forEach(el => {
+      el.textContent = formatDuration(parseInt(el.dataset.expires, 10) - Date.now());
+    });
+  }, 1000);
+
+  $('run').onclick = async () => {
+    const files = Array.from($('files').files || []);
+    if(!files.length){ $('batchnote').textContent = 'Choose some files first.'; return; }
+    $('rows').textContent = '';
+    rows.clear();
+    const minutes = sanitizeExpiryMinutes($('exp').value);
+    $('batchnote').textContent = 'concurrency ' + CONCURRENCY + ' — lifetime: ' +
+      (minutes == null ? 'omitted (server default applies)' : minutes + ' min');
+    const { items, ignored } = await uploadBatch(files, {
+      upload: mockUpload,
+      maxBytes: 15 * 1024 * 1024,   /* the site configures these per account tier */
+      maxBatch: 20,
+      expiresInMinutes: minutes,
+      onStart(item){ rowFor(item).status.textContent = 'uploading…'; },
+      onProgress(item, pct){ rowFor(item).bar.value = pct; },
+      onDone(item, res){
+        const r = rowFor(item);
+        r.bar.value = 100;
+        r.status.className = 'status';
+        r.status.innerHTML = '';
+        r.status.append(res.url + ' — expires in ');
+        const cd = document.createElement('span');
+        cd.dataset.expires = String(res.expiresAt);
+        cd.textContent = formatDuration(res.expiresAt - Date.now());
+        r.status.append(cd, ' — could extend to: ' +
+          (extendChoices(res.expiresAt).join('/') || '(nothing longer)') + ' min');
+      },
+      onError(item, err){
+        const r = rowFor(item);
+        r.status.textContent = 'failed: ' + ((err && err.code) || (err && err.message) || err);
+        r.status.className = 'status err';
+      },
+      onHash(item, md5){ rowFor(item).hash.textContent = 'MD5 ' + md5; },
+    });
+    if(ignored) $('batchnote').textContent += ' — ' + ignored + ' file(s) over the batch cap were ignored';
+    $('batchnote').textContent += ' — done: ' + items.filter(x => x.ok).length + '/' + items.length;
+  };
+
+  $('vfile').onchange = async () => {
+    const f = ($('vfile').files || [])[0];
+    if(!f) return;
+    $('vstatus').textContent = 'starting…'; $('vstatus').className = '';
+    $('vout').textContent = ''; $('vsheet').hidden = true;
+    try {
+      const res = await videoToFramesZip(f, {
+        maxBytes: 15 * 1024 * 1024,
+        onProgress(stage, pct, info){
+          $('vstatus').textContent = stage + (info ? ' ' + info.done + '/' + info.total : '') + ' — ' + pct + '%';
+        },
+      });
+      if(!res) return; /* cancelled (not used in this demo) */
+      $('vstatus').textContent = 'done — ' + res.frameCount + ' frames from a ' +
+        Math.round(res.duration) + ' s clip, ZIP ' + formatBytes(res.file.size);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(res.file);
+      a.download = res.file.name;
+      a.textContent = 'Download ' + res.file.name;
+      $('vout').replaceChildren(a);
+      $('vsheet').src = URL.createObjectURL(res.sheet);
+      $('vsheet').hidden = false;
+    } catch (e){
+      $('vstatus').textContent = 'failed: ' + ((e && e.code) || e.message);
+      $('vstatus').className = 'err';
+    }
+    $('vfile').value = '';
+  };
+</script>
