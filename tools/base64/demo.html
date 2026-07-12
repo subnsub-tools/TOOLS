@@ -1,0 +1,49 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Base64 — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: 1rem 0 .25rem; }
+  label.inline { display: inline-block; margin: 0 1rem 0 0; }
+  input, button, textarea { font: inherit; }
+  textarea { width: 100%; box-sizing: border-box; }
+  pre { background: #f4f4f4; padding: .6rem; white-space: pre-wrap; word-break: break-all; }
+  .err { color: #b00020; }
+</style>
+
+<h1>Base64 — demo</h1>
+<p>UTF-8-safe Base64. Pick a direction and type — output updates live.</p>
+
+<p>
+  <label class="inline"><input type="radio" name="mode" value="decode" checked> Decode</label>
+  <label class="inline"><input type="radio" name="mode" value="encode"> Encode</label>
+</p>
+
+<label for="in">Input</label>
+<textarea id="in" rows="5" placeholder="Paste a Base64 string (or plain text in Encode mode)…"></textarea>
+
+<label>Output</label>
+<pre id="out">—</pre>
+<p id="err" class="err"></p>
+
+<script type="module">
+  import { encode, decode } from './base64-codec.js';
+
+  const $ = (id) => document.getElementById(id);
+  const mode = () => document.querySelector('[name=mode]:checked').value;
+
+  function refresh() {
+    const v = $('in').value;
+    $('err').textContent = '';
+    if (!v) { $('out').textContent = '—'; return; }
+    try {
+      $('out').textContent = mode() === 'encode' ? encode(v) : decode(v);
+    } catch (e) {
+      $('out').textContent = '—';
+      $('err').textContent = mode() === 'decode' ? 'Invalid Base64 string' : 'Encode failed: ' + e.message;
+    }
+  }
+
+  $('in').addEventListener('input', refresh);
+  document.querySelectorAll('[name=mode]').forEach(r => r.addEventListener('change', refresh));
+</script>
