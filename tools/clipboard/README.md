@@ -75,8 +75,7 @@ does not exist elsewhere.
 
 On subnsub.com the Clipboard tab is a signed-in feature: the cross-device
 image slots are kept by the site's server under the signed-in account —
-the server is the list, per-plan slot counts and per-image byte caps are
-enforced there, and this module only receives the bytes the page has
-already fetched. The text-snippet history (de-dupe, per-plan cap) rides
-the account's settings sync. Neither storage layer is part of this
-module.
+the server is the list, slot counts and byte caps are enforced there, and
+this module only receives the bytes the page has already fetched. The
+text-snippet history rides the account's settings sync. Neither storage
+layer is part of this module.

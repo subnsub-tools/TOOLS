@@ -103,45 +103,30 @@ a forged oversize/over-quota request is rejected server-side regardless.
 `POST /api/upload` — `multipart/form-data`
 - `file` — the file
 - `expiresInMinutes` (optional) — requested lifetime; omitted → the
-  session's tier default applies
+  server applies its default
 
 Success (2xx) JSON, fields the page consumes:
 `{ id, url, name, size, type, expiresAt }` (`expiresAt` = ms epoch).
 
-Failure JSON: `{ error, mode? }` where `mode` (`anon`/`auth`/`pro`) tags the
-tier for messaging. Error codes seen by the client:
-
-| code | meaning |
-|---|---|
-| `too_large` | over the account's size cap |
-| `rate_limited` | per-client rate tiers exceeded |
-| `quota_exhausted` | service-wide daily quota reached |
-| `empty_file` | zero-byte upload |
-| `ip_banned` | temporary ban (too many invalid link probes) |
-| `bad_expiry` | lifetime outside the account's window |
-| `bad_request` | malformed request |
+Failure JSON: `{ error }` — a deployment-defined code (`too_large`,
+`bad_expiry`, `bad_request`, …). The module surfaces the code verbatim
+through `onError` and attaches no meaning to it; which codes exist and
+what limits trigger them are server policy, not module contract.
 
 `POST /api/extend` — JSON `{ id, expiresInMinutes }` →
 `{ ok: true, expiresAt }` or `{ error }`. Each file can be extended once;
 `extendChoices()` mirrors the client rule that only presets longer than the
 remaining time are offered.
 
-`GET /api/status` → `{ banned, quotaOk }` — the page's preflight banner
-(disables the dropzone before an upload is even attempted).
+## Caps, lifetimes, and configuration
 
-## Caps, lifetimes, and account tiers
-
-The module takes a single `maxBytes`/`maxBatch` pair. On subnsub.com those
-are configured per account tier (size 5 MB free / 15 MB Plus; batch 1 file
-free / 20 files Plus), lifetime presets run 5–300 minutes with the longest
-three gated to Plus, and the no-choice default follows the session tier
-(5 min anonymous / 10 signed-in / 30 Plus) — which is why
-`expiresInMinutes: null` omits the field and lets the server decide. All of
-that is account policy enforced server-side, deliberately not module logic.
-One tier behavior worth noting: the site's free tier refuses a multi-file
-batch outright (rather than trimming it), and a video over the size cap is
-auto-routed into `videoToFramesZip()` instead of erroring — both are page
-wiring above this module.
+The module takes a single `maxBytes`/`maxBatch` pair and a preset list. On
+subnsub.com those are configured per account and enforced server-side —
+deliberately not module logic — which is why `expiresInMinutes: null`
+omits the field and lets the server apply its default. One piece of page
+wiring worth noting: on site, a video over the size cap is auto-routed
+into `videoToFramesZip()` instead of erroring — that routing lives above
+this module.
 
 ## How keyframes are picked
 

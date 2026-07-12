@@ -84,7 +84,7 @@ sign as `-` and `e`.
   caller owns.
 - Favourite caps (10 / 8 / 12) mirror the source tabs so a crafted or
   stale stored list can't fan out unbounded fetches.
-- `togglePin`'s `maxPins` is injectable: the site derives the pin cap and
-  per-tile row trimming from the account tier (display-level only — stored
+- `togglePin`'s `maxPins` is injectable: the site configures the pin cap
+  and per-tile row trimming on its own side (display-level only — stored
   pins and favourites are never deleted). That gating, the tile DOM and
   the window-fill mode are on-site concerns, not extracted.

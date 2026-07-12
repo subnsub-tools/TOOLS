@@ -96,9 +96,9 @@ which the site refuses to start.
 A bounded, newest-first array of finished-run records. Only **clean**
 finishes are recorded — a partially-failed run would read as a real dip
 in the trend. The cap is a parameter here; on subnsub.com the ledger is
-kept server-side per signed-in account (free keeps the last 10 runs, Plus
-100) and the **server** rolls the oldest row off (FIFO), so saving never
-needs gardening. `mergeItems()` exists because a slow list fetch can
+kept server-side per signed-in account with a server-configured cap, and
+the **server** rolls the oldest row off (FIFO), so saving never needs
+gardening. `mergeItems()` exists because a slow list fetch can
 resolve after local saves/deletes — it reconciles instead of clobbering
 (dedupe by id, local first; deleted ids stay deleted; newest first;
 cap-trim).

@@ -49,6 +49,12 @@ memory (refusing past `MEM_HARD_CAP`, ~2 GB) and hands the finished Blob to
 `FSASink` wraps a File System Access writable, and `fileWritableInDir`
 picks a collision-free name inside a chosen directory handle.
 
+One deliberate storage note: writing a received file to where you point it
+**is the tool** — that File System Access sink is the only thing here that
+touches disk, it only ever runs inside your explicit directory pick, and
+the module keeps no state of its own (no localStorage, no IndexedDB; even
+trust tokens are in-memory only).
+
 ## Discovery contract
 
 `TransferNode` talks to discovery through a five-callback session:
@@ -66,25 +72,17 @@ close()                            leave
 `BroadcastChannelDiscovery` (included) implements it across the tabs of one
 browser — zero server, which is also what makes the demo self-contained.
 
-The production tool implements the same contract over a WebSocket to a small
-rooming server, whose only jobs are grouping clients into rooms and relaying
-targeted signals (it never sees file bytes — only SDP/ICE handshakes). Its
-wire shape, if you want to run your own:
+The production tool implements the same contract over a WebSocket to a
+small rooming server whose only jobs are grouping clients into rooms and
+relaying targeted signals — it never sees file bytes, only the SDP/ICE
+handshake. Any transport that can deliver these five callbacks satisfies
+the module; `BroadcastChannelDiscovery` is the reference implementation to
+copy from.
 
-- Join `wss://<base>/room/<code>?name=<announced name>` for a shared-code
-  room, or `wss://<base>/discover?name=…` for a room derived server-side
-  from the caller's public IP (that is the "devices on the same network see
-  each other" mode). Room codes match `[a-z0-9_-]{6,64}` (`genCode()` uses
-  an unambiguous subset); announced names are capped server-side (160).
-- Server → client: `{type:'welcome', selfId, peers:[{id,name}], room}`,
-  then `{type:'peer-joined', peer:{id,name}}`, `{type:'peer-left', id}`,
-  and `{type:'signal', from, payload}`.
-- Client → server: `{t:'signal', to, payload}`.
-
-Transport ids rotate on every (re)connect. A stable per-device id therefore
-rides the announced name (US-delimited 4th segment) — it keys resume state
-and channel ownership; the two middle segments are reserved (the in-page
-build carries tile accent colours there).
+Transport ids rotate on every (re)connect. A stable per-device id
+therefore rides the announced name (`announceName()` frames it,
+`parsePeerName()` reads it back) — that id keys resume state and channel
+ownership across reconnects.
 
 ## Data-channel protocol
 
@@ -130,12 +128,10 @@ un-settled writes exceed 16 MB — for disks slower than the wire.
 
 - **STUN/TURN.** `iceServers` defaults to `[]` — host candidates only, so
   connectivity is confined to the local network. The hosted build injects
-  STUN, and a TURN relay according to the account's plan (with its own
-  relay-usage caps); pass your own servers here to cross NATs.
+  its own STUN/TURN configuration; pass your own servers here to cross
+  NATs.
 - The WebSocket discovery implementation, with reconnect/backoff and
-  several simultaneous rooms (your code room, an account room, dialed
-  codes).
-- More receive destinations (an IndexedDB spill tier, save-picker and
-  receive-folder modes), a strict LAN-only mode that filters non-local ICE
-  candidates in both directions, offline pairing by hand-carried codes, and
-  the whole device-grid UI.
+  several simultaneous rooms.
+- More receive destinations and pairing conveniences (save-picker and
+  receive-folder flows, a strict LAN-only mode, offline pairing), and the
+  whole device-grid UI.
