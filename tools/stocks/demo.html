@@ -1,0 +1,171 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Stock Quotes — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 36rem; margin: 3rem auto; padding: 0 1rem; }
+  input, button { font: inherit; }
+  #price { font-size: 1.5em; }
+  .up { color: #0a7a33; } .down { color: #b00020; }
+  #chart svg { width: 100%; height: auto; display: block; border: 1px solid #ccc; }
+  #chart .area { fill: #9993; stroke: none; }
+  #chart .line { fill: none; stroke: #555; stroke-width: 2; }
+  ul { padding-left: 1.2rem; }
+  code { background: #eee; padding: 0 .25em; }
+</style>
+
+<h1>Stock Quotes — demo</h1>
+<p>Runs the module against bundled sample payloads for a fictional
+<code>DEMO</code> ticker (hand-written fake numbers). The module never
+fetches; on subnsub.com the page feeds it the same documents from the
+same-origin <code>/api/stocks</code> and <code>/api/stock-history</code>
+proxies.</p>
+
+<h2>Quote</h2>
+<div id="quote"></div>
+
+<h2>Price history</h2>
+<div id="ranges"></div>
+<div id="chart"></div>
+<p id="hover">Hover the chart for the nearest sample.</p>
+
+<h2>Watchlist</h2>
+<input id="wl-in" value="DEMO" maxlength="10"> <button id="wl-toggle" type="button">Toggle</button>
+<ul id="wl-list"></ul>
+
+<h2>Typeahead filter (popular list)</h2>
+<input id="ta-in" placeholder="e.g. app"> <ul id="ta-list"></ul>
+
+<script type="module">
+  import {
+    readQuotePayload, fmtPrice, fmtChange, fmtMktCap,
+    readHistoryPayload, RANGES, sliceSeries, chartGeometry, nearestIndex,
+    sanitizeWatchlist, toggleWatch, filterPopular,
+  } from './stock-quotes.js';
+
+  /* Hand-written stand-ins for the two documents — clearly-fake round
+     numbers on a fictional company. marketCap is in MILLIONS (so 123456 ⇒
+     $123.46B); `delayed:false` means a live quote (the end-of-day fallback
+     would set true). */
+  const SAMPLE_QUOTE_PAYLOAD = {
+    ok: true,
+    symbol: 'DEMO', name: 'Demo Corporation', exchange: 'DEMO EXCHANGE',
+    currency: 'USD', marketCap: 123456, weburl: null,
+    price: 123.45, change: 1.23, changePct: 1.01,
+    high: 125, low: 121.5, open: 122, prevClose: 122.22,
+    ts: 1770163200, delayed: false,
+  };
+  /* Daily closes, ascending, one point every ~21 days from 2025-01-01 to
+     2026-02-04 (unix seconds). Sparse on purpose so the range buttons
+     visibly re-slice (1M narrows all the way down to two points). */
+  const SAMPLE_HISTORY_PAYLOAD = { ok: true, symbol: 'DEMO', points: [
+    [1735689600,  96],   [1737504000,  99],   [1739318400, 103],
+    [1741132800, 101],   [1742947200, 107],   [1744761600, 112],
+    [1746576000, 108],   [1748390400, 104],   [1750204800, 110],
+    [1752019200, 115],   [1753833600, 119],   [1755648000, 116],
+    [1757462400, 121],   [1759276800, 118],   [1761091200, 114],
+    [1762905600, 117],   [1764720000, 122],   [1766534400, 126],
+    [1768348800, 124],   [1770163200, 123.45],
+  ] };
+  /* Treat the sample's last day as "today" so the range windows line up
+     with the data no matter when the demo is opened. */
+  const NOW_SEC = 1770163200;
+
+  const $ = id => document.getElementById(id);
+  const line = (label, val) => {
+    const p = document.createElement('p');
+    p.textContent = label ? label + ': ' + val : val;
+    return p;
+  };
+
+  /* ── quote card ── */
+  const q = readQuotePayload(SAMPLE_QUOTE_PAYLOAD);
+  {
+    const box = $('quote');
+    box.appendChild(line('', q.name + ' (' + q.symbol + ') · ' + q.exchange + ' · ' + q.currency));
+    const pr = line('', fmtPrice(q.price) + ' ' + q.currency);
+    pr.id = 'price';
+    const chg = fmtChange(q.change, q.changePct);
+    if (chg){
+      const s = document.createElement('span');
+      s.className = chg.up ? 'up' : 'down';
+      s.textContent = ' ' + chg.text;
+      pr.appendChild(s);
+    }
+    box.appendChild(pr);
+    box.appendChild(line('Open', fmtPrice(q.open)));
+    box.appendChild(line('High', fmtPrice(q.high)));
+    box.appendChild(line('Low', fmtPrice(q.low)));
+    box.appendChild(line('Prev close', fmtPrice(q.prevClose)));
+    box.appendChild(line('Mkt cap', fmtMktCap(q.marketCap, q.currency)));
+    if (q.delayed) box.appendChild(line('', 'Delayed · last close'));
+  }
+
+  /* ── history chart ── */
+  const points = readHistoryPayload(SAMPLE_HISTORY_PAYLOAD);
+  let range = '6M';
+  let geom = null, pts = null;
+  const SVG = 'http://www.w3.org/2000/svg';
+
+  function renderRanges(){
+    const bar = $('ranges'); bar.textContent = '';
+    RANGES.forEach(([label]) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = label;
+      b.disabled = label === range;
+      b.onclick = () => { range = label; renderChart(); };
+      bar.appendChild(b);
+    });
+  }
+  function renderChart(){
+    renderRanges();
+    pts = sliceSeries(points, range, NOW_SEC);
+    geom = chartGeometry(pts);           // 600×150 viewBox by default
+    const box = $('chart'); box.textContent = '';
+    if (!geom){ box.textContent = 'No price history available.'; return; }
+    const svg = document.createElementNS(SVG, 'svg');
+    svg.setAttribute('viewBox', '0 0 600 150');
+    const area = document.createElementNS(SVG, 'path');
+    area.setAttribute('class', 'area'); area.setAttribute('d', geom.area);
+    const ln = document.createElementNS(SVG, 'path');
+    ln.setAttribute('class', 'line'); ln.setAttribute('d', geom.line);
+    svg.appendChild(area); svg.appendChild(ln);
+    svg.addEventListener('pointermove', e => {
+      const rect = svg.getBoundingClientRect(); if (!rect.width) return;
+      const vx = (e.clientX - rect.left) / rect.width * 600;
+      const i = nearestIndex(geom.xs, vx);
+      $('hover').textContent = new Date(pts[i][0] * 1000).toISOString().slice(0, 10)
+        + ' · close ' + fmtPrice(pts[i][1])
+        + (geom.up ? ' (period up)' : ' (period down)');
+    });
+    box.appendChild(svg);
+  }
+  renderChart();
+
+  /* ── watchlist ── */
+  /* Seed through the sanitizer, exactly as the site loads a synced list —
+     note the junk entries dropping out. */
+  let watch = sanitizeWatchlist(['NVDA', 'nvda', 'demo', 42, 'BAD TICKER!', 'MSFT']);
+  function renderWatch(){
+    const ul = $('wl-list'); ul.textContent = '';
+    watch.forEach(t => {
+      const li = document.createElement('li'); li.textContent = t + ' ';
+      const x = document.createElement('button');
+      x.type = 'button'; x.textContent = 'remove';
+      x.onclick = () => { toggleWatch(watch, t); renderWatch(); };
+      li.appendChild(x); ul.appendChild(li);
+    });
+  }
+  $('wl-toggle').onclick = () => { toggleWatch(watch, $('wl-in').value); renderWatch(); };
+  renderWatch();
+
+  /* ── typeahead ── */
+  function renderTa(){
+    const ul = $('ta-list'); ul.textContent = '';
+    filterPopular($('ta-in').value).forEach(([t, n]) => {
+      const li = document.createElement('li'); li.textContent = t + ' — ' + n;
+      ul.appendChild(li);
+    });
+  }
+  $('ta-in').addEventListener('input', renderTa);
+  renderTa();
+</script>
