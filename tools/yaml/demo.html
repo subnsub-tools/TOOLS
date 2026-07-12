@@ -1,0 +1,66 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>YAML ↔ JSON — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: .75rem 0 .25rem; }
+  textarea, pre { width: 100%; font: 13px/1.4 ui-monospace, monospace; box-sizing: border-box; }
+  pre { background: rgba(127,127,127,.12); padding: .5rem; min-height: 8rem; overflow-x: auto; white-space: pre-wrap; }
+  fieldset { border: 1px solid #8884; margin: .75rem 0; }
+  .err { color: #b00020; }
+</style>
+
+<h1>YAML ↔ JSON — demo</h1>
+<p>Paste either format and get the other. Hand-rolled parser/emitter — see
+the README for the exact supported subset.</p>
+
+<fieldset>
+  <legend>Direction</legend>
+  <label><input type="radio" name="dir" value="y2j" checked> YAML → JSON</label>
+  <label><input type="radio" name="dir" value="j2y"> JSON → YAML</label>
+</fieldset>
+<fieldset>
+  <legend>Output indent</legend>
+  <label><input type="radio" name="indent" value="2" checked> 2 spaces</label>
+  <label><input type="radio" name="indent" value="4"> 4 spaces</label>
+</fieldset>
+
+<label>Input</label>
+<textarea id="in" rows="10" spellcheck="false">server:
+  host: example.local
+  port: 8080
+  tls: true
+features:
+  - gzip
+  - http2
+motd: |
+  line one
+  line two</textarea>
+
+<label>Output</label>
+<pre id="out">—</pre>
+<p id="err" class="err"></p>
+
+<script type="module">
+  import { yamlToJson, jsonToYaml } from './yaml-convert.js';
+
+  const $ = (id) => document.getElementById(id);
+  const picked = (name) => document.querySelector(`input[name="${name}"]:checked`).value;
+
+  function run(){
+    const v = $('in').value;
+    $('err').textContent = '';
+    if (!v.trim()) { $('out').textContent = '—'; return; }
+    try {
+      const indent = parseInt(picked('indent'), 10);
+      $('out').textContent = picked('dir') === 'y2j' ? yamlToJson(v, indent) : jsonToYaml(v, indent);
+    } catch (e) {
+      $('out').textContent = '—';
+      $('err').textContent = e.message;
+    }
+  }
+
+  $('in').addEventListener('input', run);
+  document.querySelectorAll('input[type="radio"]').forEach((r) => r.addEventListener('change', run));
+  run();
+</script>
