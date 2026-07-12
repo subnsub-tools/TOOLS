@@ -1,0 +1,57 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Hex Converter — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: 1rem 0 .25rem; }
+  label.inline { display: inline-block; margin: 0 1rem 0 0; }
+  input, button, textarea { font: inherit; }
+  textarea { width: 100%; box-sizing: border-box; }
+  pre { background: #f4f4f4; padding: .6rem; white-space: pre-wrap; word-break: break-all; }
+  .err { color: #b00020; }
+</style>
+
+<h1>Hex Converter — demo</h1>
+<p>Text to UTF-8 hex bytes and back. Decoding strips <code>0x</code>,
+whitespace, colons and commas wherever they appear.</p>
+
+<p>
+  <label class="inline"><input type="radio" name="mode" value="decode" checked> Hex → Text</label>
+  <label class="inline"><input type="radio" name="mode" value="encode"> Text → Hex</label>
+</p>
+<p>
+  Separator (encode):
+  <label class="inline"><input type="radio" name="sep" value="space" checked> Space</label>
+  <label class="inline"><input type="radio" name="sep" value="none"> None</label>
+  <label class="inline"><input type="radio" name="sep" value="0x"> 0x prefix</label>
+  <label class="inline"><input type="radio" name="sep" value="colon"> Colon</label>
+</p>
+
+<label for="in">Input</label>
+<textarea id="in" rows="4" placeholder="48 65 6c 6c 6f"></textarea>
+
+<label>Output</label>
+<pre id="out">—</pre>
+<p id="err" class="err"></p>
+
+<script type="module">
+  import { encode, decode } from './hex-codec.js';
+
+  const $ = (id) => document.getElementById(id);
+  const pick = (name) => document.querySelector(`[name=${name}]:checked`).value;
+
+  function refresh() {
+    const v = $('in').value;
+    $('err').textContent = '';
+    if (!v) { $('out').textContent = '—'; return; }
+    try {
+      $('out').textContent = pick('mode') === 'encode' ? encode(v, pick('sep')) : decode(v);
+    } catch (e) {
+      $('out').textContent = '—';
+      $('err').textContent = e.message;
+    }
+  }
+
+  $('in').addEventListener('input', refresh);
+  document.querySelectorAll('input[type=radio]').forEach(r => r.addEventListener('change', refresh));
+</script>
