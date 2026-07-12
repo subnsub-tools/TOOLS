@@ -1,0 +1,177 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Today Aggregate — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 46rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: 1rem 0 .25rem; }
+  input, button { font: inherit; }
+  pre { background: rgba(127,127,127,.12); padding: .75rem; overflow-x: auto; white-space: pre-wrap; }
+  h2 { font-size: 1.05rem; margin-top: 2rem; }
+</style>
+
+<h1>Today Aggregate — demo</h1>
+<p>Exercises the board's three mechanisms on hand-written <em>sample</em>
+data: the pin model, the TTL/settle refresh discipline, and the
+signature render criterion (identical payloads re-fetched later must NOT
+change a tile's signature).</p>
+
+<h2>1 · Pin model</h2>
+<label>Stored pins (raw JSON, junk welcome)
+  <input id="pins" value='["weather","fx","weather","bogus",{"t":"stock"}]' size="48"></label>
+<label>Pin cap <input id="cap" value="5" size="4"></label>
+<span id="togglers"></span>
+<pre id="pin-out">…</pre>
+
+<h2>2 · Refresh + signatures</h2>
+<button id="tick">Run a scheduler tick</button>
+<button id="refetch">Re-fetch same payloads (sig must hold)</button>
+<button id="mutate">Weather turns warmer (sig must change)</button>
+<pre id="agg-out">…</pre>
+
+<script type="module">
+  import {
+    KNOWN_TOOLS, TTL, parsePins, serializePins, togglePin,
+    makeZoneCheck, dayKey, todayMid, dateFacts,
+    wxFavCities, fxFavList, stkFavList,
+    poolEntry, due, dueFetches, wxRequest, wcFetchRange,
+    settleWeather, settleStock, settleWorldcup, settleFx,
+    validFxCache, fxCacheFresh, adoptFxCache,
+    weatherSig, fxSig, stockSig, worldcupSig, countdownSig,
+    wxCard, fxRows, fmtPrice, stockChange, todaysMatches, wcMatchRow,
+    parseCounters, cdDays, sortCounters, cdLabel,
+  } from './today-aggregate.js';
+
+  const $ = (id) => document.getElementById(id);
+
+  /* ── 1 · pin model ── */
+  let pins = [];
+  function paintPins(){
+    pins = parsePins($('pins').value);
+    const cap = parseInt($('cap').value, 10) || undefined;
+    $('togglers').replaceChildren(...KNOWN_TOOLS.map(id => {
+      const b = document.createElement('button');
+      b.textContent = (pins.includes(id) ? '− ' : '+ ') + id;
+      b.onclick = () => {
+        const r = togglePin(pins, id, { maxPins: cap });
+        $('pins').value = serializePins(r.pins) || '[]';
+        report(r);
+      };
+      return b;
+    }));
+    report(null);
+    function report(r){
+      $('pin-out').textContent =
+        'parsed (whitelisted, deduped, ordered): ' + JSON.stringify(pins) + '\n' +
+        'serialised: ' + JSON.stringify(serializePins(pins)) + '   (null = key absent = default)\n' +
+        (r ? 'last toggle: ' + JSON.stringify({ changed: r.changed, capped: r.capped }) : '');
+    }
+  }
+  $('pins').oninput = paintPins;
+  $('cap').oninput = paintPins;
+  paintPins();
+
+  /* ── 2 · refresh + signatures ──
+     Sample stored favourites + sample proxy payloads. All fake. */
+  const STORED = {
+    wxFavs: [{ name: 'Sample City' }, { name: 'Demoville' }],
+    fxFavs: [{ f: 'usd', t: 'eur', a: 100 }, { f: 'eur', t: 'jpy', a: 50 }],
+    stkFavs: ['DEMO', 'TEST'],
+    counters: '[{"d":"2026-12-31","t":"Sample deadline"},{"d":"2026-01-01","t":"Past sample"}]',
+    zone: 'Asia/Tokyo',
+  };
+  const PAYLOADS = {
+    weather: (city, tempC) => ({ ok: true,
+      location: { name: city, country: 'Sampleland' },
+      current: { temp_c: tempC, temp_f: Math.round((tempC * 9 / 5 + 32) * 10) / 10,
+                 feelslike_c: tempC + 2, feelslike_f: Math.round(((tempC + 2) * 9 / 5 + 32) * 10) / 10,
+                 condition: 'Partly Cloudy', icon: 'cloud-sun' },
+      forecast: [{ date: '2026-07-13', maxtemp_c: tempC + 3, maxtemp_f: 90, mintemp_c: tempC - 5, mintemp_f: 70 }] }),
+    rates: { ok: true, date: '2026-07-12', rates: { eur: 0.9, jpy: 150.0 } },
+    stock: (sym) => ({ ok: true, symbol: sym, price: sym === 'DEMO' ? 123.45 : 0.5678, change: 1.2, changePct: 0.98 }),
+    worldcup: { ok: true, matches: [
+      { id: 'demo-1', utcDate: new Date().toISOString(), status: 'IN_PLAY',
+        homeTeam: { code: 'BRA', name: 'Brazil', score: 1 }, awayTeam: { code: 'JPN', name: 'Japan', score: 0 } },
+    ] },
+  };
+
+  const zoneCheck = makeZoneCheck();
+  const pools = { weather: {}, stock: {},
+    fx: { data: null, fetchedAt: 0, loading: false, err: false },
+    worldcup: { data: null, fetchedAt: 0, loading: false, err: false } };
+  let wxTemp = 27.5;
+  const sigs = {};
+
+  function shown(){
+    return { weather: wxFavCities(STORED.wxFavs), fx: fxFavList(STORED.fxFavs), stock: stkFavList(STORED.stkFavs) };
+  }
+
+  function tick(){
+    const view = shown(), log = [];
+    for (const id of ['weather', 'fx', 'stock', 'worldcup', 'countdown']) {
+      const keys = dueFetches(id, view, pools);
+      log.push(`${id}: due → [${keys.join(', ')}]`);
+      for (const k of keys) {
+        if (id === 'weather') settleWeather(poolEntry(pools.weather, k.toLowerCase()), PAYLOADS.weather(k, wxTemp));
+        else if (id === 'stock') settleStock(poolEntry(pools.stock, k), PAYLOADS.stock(k));
+        else if (id === 'fx') settleFx(pools.fx, PAYLOADS.rates, validFxCache(null));
+        else if (id === 'worldcup') settleWorldcup(pools.worldcup, PAYLOADS.worldcup);
+      }
+    }
+    log.push('weather request routing: ' + JSON.stringify(wxRequest('Sample City')) + ' / ' + JSON.stringify(wxRequest('35.68,139.69')));
+    log.push('worldcup fetch window: ' + JSON.stringify(wcFetchRange()));
+    render(log);
+  }
+
+  function render(log){
+    const view = shown();
+    const tz = zoneCheck(STORED.zone);
+    const next = {
+      weather: weatherSig(view.weather, pools.weather, { fahrenheit: false, lang: 'en' }),
+      fx: fxSig(view.fx, pools.fx, 'en'),
+      stock: stockSig(view.stock, pools.stock, 'en'),
+      worldcup: worldcupSig(pools.worldcup, tz, 'en'),
+      countdown: countdownSig(STORED.counters, tz, 'en'),
+    };
+    const lines = log.concat('', '— tiles —');
+    for (const id of Object.keys(next)) {
+      const changed = next[id] !== sigs[id];
+      sigs[id] = next[id];
+      lines.push(`${id}: signature ${changed ? 'CHANGED → rebuild' : 'unchanged → render no-op'}`);
+    }
+    const facts = dateFacts(tz);
+    lines.push('', `— board (${tz || 'browser zone'}, ${dayKey(tz)}: week ${facts.week}, day ${facts.dayOfYear}/${facts.daysInYear}) —`);
+    for (const c of view.weather) {
+      const card = wxCard(c, pools.weather[c.toLowerCase()], {});
+      lines.push(`weather · ${card.city} ${card.temp || ''} ${card.condition || ''} ${card.feels || ''}`);
+    }
+    for (const row of fxRows(view.fx, pools.fx.data ? pools.fx.data.rates : {}, 'en')) lines.push('fx · ' + row);
+    for (const s of view.stock) {
+      const d = pools.stock[s] && pools.stock[s].data;
+      const chg = stockChange(d);
+      lines.push(`stock · ${s} ${d ? fmtPrice(d.price) : '…'} ${chg ? chg.text : ''}`);
+    }
+    for (const m of todaysMatches(pools.worldcup.data, tz).slice(0, 6)) {
+      const r = wcMatchRow(m, { timeZone: tz, locale: 'en' });
+      lines.push(`worldcup · ${m.homeTeam.code} ${r.score || '–'} ${m.awayTeam.code}  [${r.badge || r.time}]`);
+    }
+    const mid = todayMid(tz);
+    for (const it of sortCounters(parseCounters(STORED.counters), mid).slice(0, 6))
+      lines.push(`countdown · ${it.t || it.d}: ${cdLabel(cdDays(it.d, mid))}`);
+    $('agg-out').textContent = lines.join('\n');
+  }
+
+  $('tick').onclick = tick;
+  $('refetch').onclick = () => {
+    /* identical payloads, later fetchedAt — every signature must hold */
+    shown().weather.forEach(c => settleWeather(poolEntry(pools.weather, c.toLowerCase()), PAYLOADS.weather(c, wxTemp)));
+    shown().stock.forEach(s => settleStock(poolEntry(pools.stock, s), PAYLOADS.stock(s)));
+    settleFx(pools.fx, PAYLOADS.rates, null);
+    render(['re-fetched identical payloads (fetchedAt moved, data did not)']);
+  };
+  $('mutate').onclick = () => {
+    wxTemp += 1;
+    shown().weather.forEach(c => settleWeather(poolEntry(pools.weather, c.toLowerCase()), PAYLOADS.weather(c, wxTemp)));
+    render([`weather payload changed (now ${wxTemp}°C)`]);
+  };
+  tick();
+</script>
