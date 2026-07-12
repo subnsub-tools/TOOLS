@@ -1,0 +1,58 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>JSON Formatter — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: 1rem 0 .25rem; }
+  label.inline { display: inline-block; margin: 0 1rem 0 0; }
+  input, button, textarea { font: inherit; }
+  textarea { width: 100%; box-sizing: border-box; }
+  pre { background: #f4f4f4; padding: .6rem; white-space: pre-wrap; word-break: break-all; }
+  .err { color: #b00020; }
+</style>
+
+<h1>JSON Formatter — demo</h1>
+<p>Pretty-print, minify, or just validate. Parse errors show line and
+column when the engine reports a position.</p>
+
+<p>
+  <label class="inline"><input type="radio" name="mode" value="format" checked> Format</label>
+  <label class="inline"><input type="radio" name="mode" value="minify"> Minify</label>
+  <label class="inline"><input type="radio" name="mode" value="validate"> Validate only</label>
+  <span style="margin: 0 .5rem">·</span>
+  <label class="inline"><input type="radio" name="indent" value="2" checked> 2 spaces</label>
+  <label class="inline"><input type="radio" name="indent" value="4"> 4 spaces</label>
+</p>
+
+<label for="in">Input</label>
+<textarea id="in" rows="7" placeholder='{"paste": ["your", "JSON", "here"]}'></textarea>
+
+<label>Output</label>
+<pre id="out">—</pre>
+<p id="err" class="err"></p>
+
+<script type="module">
+  import { format, minify, validate } from './json-format.js';
+
+  const $ = (id) => document.getElementById(id);
+  const pick = (name) => document.querySelector(`[name=${name}]:checked`).value;
+
+  function refresh() {
+    const v = $('in').value;
+    $('err').textContent = '';
+    if (!v.trim()) { $('out').textContent = '—'; return; }
+    const r = validate(v);
+    if (!r.valid) {
+      $('out').textContent = '—';
+      $('err').textContent = '✕ ' + r.message + (r.line !== null ? ` — line ${r.line}, col ${r.col}` : '');
+      return;
+    }
+    const mode = pick('mode');
+    $('out').textContent = mode === 'validate' ? '✓ Valid JSON'
+      : mode === 'format' ? format(v, parseInt(pick('indent')))
+      : minify(v);
+  }
+
+  $('in').addEventListener('input', refresh);
+  document.querySelectorAll('input[type=radio]').forEach(r => r.addEventListener('change', refresh));
+</script>
