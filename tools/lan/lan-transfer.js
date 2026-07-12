@@ -71,7 +71,11 @@ export function deviceLabel() {
 }
 /* Pairing code: 6 chars from an unambiguous alphabet (no 0/1/i/l/o). It's the
    shared room name for manual pairing, so it must match the signalling
-   server's code grammar ([a-z0-9_-]{6,64}). */
+   server's code grammar ([a-z0-9_-]{6,64}). The plain % draw is deliberate
+   and kept byte-identical with the in-page build: with 31 symbols the first
+   eight are ~12% more likely than the rest, which is cosmetic for a
+   discovery room label — the code is not a secret and grants nothing by
+   itself (transfers still pass the accept gate and the tk/tt proofs). */
 const CODE_ALPHA = '23456789abcdefghjkmnpqrstuvwxyz';
 export function genCode() { const r = crypto.getRandomValues(new Uint8Array(6)); let s = ''; for (let i = 0; i < 6; i++) s += CODE_ALPHA[r[i] % CODE_ALPHA.length]; return s; }
 export function cleanCode(c) { return String(c || '').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 64); }

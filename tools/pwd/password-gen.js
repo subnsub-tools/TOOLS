@@ -41,6 +41,10 @@ export function pwdCharset(sets, excludeAmbig) {
 
 export function pwdRandomFromAlphabet(alphabet, len) {
   // Rejection sampling for uniform distribution.
+  /* On site the alphabet is always a non-empty charset built by the set
+     buttons; exported directly, an empty alphabet would make `limit` NaN
+     and spin the rejection loop forever — refuse it instead. */
+  if (typeof alphabet !== 'string' || alphabet.length === 0) throw new Error('Character set is empty.');
   const out = new Array(len);
   const N = alphabet.length;
   const limit = Math.floor(0x100000000 / N) * N;

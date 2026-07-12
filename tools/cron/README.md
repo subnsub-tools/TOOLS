@@ -47,8 +47,11 @@ cronRelative(fireDate);           // → 'in 12m' (optional now-ms 2nd arg)
 - Numbers only — no seconds field, no `@daily` macros, no `L`/`W`/`#`
   extensions, no `JAN`/`MON` names. Malformed parts of a field are
   ignored rather than thrown; a field that expands to nothing simply never
-  matches.
+  matches. Numeric reading is `parseInt`-lenient, matching the in-page
+  tool: a token like `1x` reads as `1` rather than being discarded.
 - Descriptions favour recognisable phrasings (`every 15 minutes`,
   `at 09:00, 17:30`) and fall back to a literal
   `minute {m} of hour {h}` form when the time pattern is too dense to
-  enumerate.
+  enumerate. One phrasing quirk kept for parity with the site: when both
+  day fields are restricted the description joins them with "and" even
+  though scheduling (above) is the POSIX **or**.

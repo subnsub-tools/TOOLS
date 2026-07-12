@@ -139,14 +139,16 @@ export async function otpCodes(secret, config, nowMs=Date.now()){
 
 /* Build an otpauth:// URI from generator state — this feeds the "Show as
    QR" action. Returns null until the secret passes the input gate. issuer
-   and account are inserted verbatim (the site uses fixed URI-safe labels),
-   so keep them URI-safe. */
+   and account are percent-encoded per component; on the site's fixed
+   URI-safe labels the encoding is a no-op, so the output stays
+   byte-identical with the in-page build while arbitrary labels can't
+   produce a malformed URI here. */
 export function buildOtpAuth(state){
   const st=normalizeConfig(state);
   const c=String((state&&state.secret)||'').trim().replace(/\s+/g,'').replace(/=+$/,'').toUpperCase();
   if(!c||!/^[A-Z2-7]+$/.test(c)||c.length<8) return null;
-  const issuer=(state&&state.issuer)||'DevTools';
-  const account=(state&&state.account)||'user';
+  const issuer=encodeURIComponent((state&&state.issuer)||'DevTools');
+  const account=encodeURIComponent((state&&state.account)||'user');
   const params=[
     'secret='+c,
     'algorithm='+algoCompact(st.algorithm),

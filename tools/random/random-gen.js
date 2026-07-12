@@ -24,6 +24,11 @@ export function rndIntInRange(lo, hi) {
   if (!Number.isFinite(lo) || !Number.isFinite(hi)) throw new Error('Range must be finite');
   if (!Number.isInteger(lo) || !Number.isInteger(hi)) throw new Error('Range bounds must be integers in integer mode');
   if (hi < lo) throw new Error('Max must be ≥ min');
+  /* Same guard the batch entry point applies before ever calling this:
+     past 2^53 the range size itself stops being exact, so no draw over it
+     can be defended as uniform. On site this function is only reached
+     behind that check — exporting it directly means owning it here too. */
+  if (hi - lo + 1 > Number.MAX_SAFE_INTEGER) throw new Error('Range too large');
   const N = hi - lo + 1;
   if (N <= 0x100000000) {
     const limit = Math.floor(0x100000000 / N) * N;
