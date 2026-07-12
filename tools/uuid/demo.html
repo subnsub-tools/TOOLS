@@ -1,0 +1,48 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>UUID Generator — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: 1rem 0 .25rem; }
+  input, button { font: inherit; }
+  input { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; }
+  pre { background: #f4f4f4; padding: .6rem; font-family: ui-monospace, monospace; }
+</style>
+
+<h1>UUID Generator — demo</h1>
+<p>RFC 4122 version-4 UUIDs from <code>crypto.getRandomValues</code>,
+generated on your device.</p>
+
+<p>
+  <button id="gen5">Generate 5 UUIDs</button>
+  <button id="gen1">Generate 1</button>
+</p>
+<pre id="list">—</pre>
+
+<label for="val">Inspect a UUID</label>
+<input type="text" id="val" placeholder="550e8400-e29b-41d4-a716-446655440000" autocomplete="off" spellcheck="false">
+<p id="res">Paste a UUID to inspect it</p>
+
+<script type="module">
+  import { genUuid, inspectUuid } from './uuid-gen.js';
+
+  const $ = (id) => document.getElementById(id);
+  const VERSIONS = {
+    1: 'v1 (time-based)', 2: 'v2 (DCE security)', 3: 'v3 (MD5 name-based)',
+    4: 'v4 (random)', 5: 'v5 (SHA-1 name-based)',
+  };
+
+  $('gen5').addEventListener('click', () => {
+    $('list').textContent = Array.from({ length: 5 }, () => genUuid()).join('\n');
+  });
+  $('gen1').addEventListener('click', () => {
+    $('list').textContent = genUuid();
+  });
+
+  $('val').addEventListener('input', () => {
+    const v = $('val').value;
+    if (!v) { $('res').textContent = 'Paste a UUID to inspect it'; return; }
+    const r = inspectUuid(v);
+    $('res').textContent = r.valid ? `✓ Valid UUID · ${VERSIONS[r.version]}` : '✕ Not a valid UUID';
+  });
+</script>
