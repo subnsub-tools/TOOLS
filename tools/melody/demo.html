@@ -1,0 +1,131 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Melody Catcher — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; }
+  input, button { font: inherit; }
+  #kbd button { min-width: 2.2rem; padding: .4rem .1rem; margin: 1px; }
+  #kbd button.bk { background: #222; color: #fff; }
+  #kbd button.armed { outline: 2px solid #06c; }
+  #strip { margin: .75rem 0; min-height: 1.5rem; }
+  #strip span { display: inline-block; border: 1px solid #999; border-radius: 4px; padding: 0 .35rem; margin: 1px; }
+  #strip span.on { background: #cde; }
+  .row { margin: .75rem 0; }
+  #status { margin-top: 1rem; white-space: pre-wrap; }
+  .err { color: #b00020; }
+</style>
+
+<h1>Melody Catcher — demo</h1>
+<p>Click keys to audition pitches, ✓ to keep one, then play the captured
+sequence back — all synthesized locally with Web Audio. Save/Load moves
+the melody as a standard MIDI file.</p>
+
+<div id="kbd"></div>
+<div class="row">
+  Armed: <strong id="armed">—</strong>
+  <button id="add" disabled>✓ Add</button>
+  <button id="rest">Rest</button>
+  <button id="undo">Undo</button>
+  <button id="clear">Clear</button>
+</div>
+<div id="strip"></div>
+<div class="row">
+  <button id="play">Play</button>
+  <label><input type="checkbox" id="loop"> Loop</label>
+  <label>BPM <input type="range" id="bpm" min="40" max="240" value="100"> <span id="bpmv">100</span></label>
+</div>
+<div class="row">
+  <button id="save">Save .mid</button>
+  <label>Load MIDI <input type="file" id="load" accept=".mid,.midi,audio/midi"></label>
+</div>
+<p id="status"></p>
+
+<script type="module">
+  import {
+    noteName, isBlack, sanitizeSequence,
+    audition, createPlayer,
+    buildMidi, midiFileName, parseMidi, midiToMelody,
+  } from './melody-core.js';
+
+  const $ = (id) => document.getElementById(id);
+  const status = (msg, err) => { $('status').textContent = msg || ''; $('status').className = err ? 'err' : ''; };
+
+  let melody = [], armed = null;
+
+  /* two octaves around middle C — the site renders the full 88 keys */
+  for (let m = 60; m <= 83; m++) {
+    const b = document.createElement('button');
+    b.textContent = noteName(m);
+    if (isBlack(m)) b.className = 'bk';
+    b.onclick = () => {
+      if (player.playing) player.stop();
+      armed = m;
+      $('armed').textContent = noteName(m);
+      $('add').disabled = false;
+      [...$('kbd').children].forEach(k => k.classList.remove('armed'));
+      b.classList.add('armed');
+      audition(m);
+    };
+    $('kbd').appendChild(b);
+  }
+
+  function render() {
+    $('strip').textContent = '';
+    melody.forEach(it => {
+      const s = document.createElement('span');
+      s.textContent = it === 'R' ? '·' : noteName(it);
+      $('strip').appendChild(s);
+    });
+    $('save').disabled = !melody.some(x => x !== 'R');
+  }
+
+  const player = createPlayer({
+    bpm:  () => $('bpm').value,
+    loop: () => $('loop').checked,
+    onSlot: (i) => {
+      [...$('strip').children].forEach(c => c.classList.remove('on'));
+      const chip = $('strip').children[i];
+      if (chip) chip.classList.add('on');
+    },
+    onStart: () => { $('play').textContent = 'Stop'; },
+    onStop: () => {
+      $('play').textContent = 'Play';
+      [...$('strip').children].forEach(c => c.classList.remove('on'));
+    },
+  });
+
+  const edit = (fn) => { if (player.playing) player.stop(); fn(); render(); };
+  $('add').onclick   = () => { if (armed != null) edit(() => melody.push(armed)); };
+  $('rest').onclick  = () => edit(() => melody.push('R'));
+  $('undo').onclick  = () => edit(() => melody.pop());
+  $('clear').onclick = () => edit(() => { melody = []; });
+  $('play').onclick  = () => player.play(melody);
+  $('bpm').oninput   = () => { $('bpmv').textContent = $('bpm').value; };
+
+  $('save').onclick = () => {
+    const url = URL.createObjectURL(new Blob([buildMidi(melody, $('bpm').value)], { type: 'audio/midi' }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: midiFileName(melody) });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    status('Saved ' + a.download);
+  };
+
+  $('load').onchange = async () => {
+    const f = $('load').files[0];
+    $('load').value = '';
+    if (!f) return;
+    try {
+      const r = midiToMelody(parseMidi(await f.arrayBuffer()));
+      if (player.playing) player.stop();
+      melody = sanitizeSequence(r.seq);
+      $('bpm').value = r.bpm;
+      $('bpmv').textContent = r.bpm;
+      render();
+      status(`Loaded ${melody.length} slots at ${r.bpm} BPM.`);
+    } catch (_) {
+      status('Couldn’t read that file — not a supported MIDI file.', true);
+    }
+  };
+
+  render();
+</script>
