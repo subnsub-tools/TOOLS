@@ -1,0 +1,113 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Clipboard — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: 1rem 0 .25rem; }
+  textarea { width: 100%; min-height: 4rem; }
+  input, button, textarea { font: inherit; }
+  #preview { display: block; max-width: 100%; margin-top: .5rem; }
+  #status { margin-top: 1rem; white-space: pre-wrap; }
+  .err { color: #b00020; }
+</style>
+
+<h1>Clipboard — demo</h1>
+<p>Browser-clipboard interop: copy/read text, image-first paste capture,
+and image → PNG clipboard writes with a promise payload. Paste text or a
+screenshot anywhere on this page. Needs HTTPS or localhost.</p>
+
+<h2>Text</h2>
+<label>Snippet <textarea id="txt">Hello from the clipboard demo.</textarea></label>
+<button id="copy">Copy text</button>
+<button id="read">Read clipboard into the box</button>
+
+<h2>Image</h2>
+<label>Image file <input type="file" id="file" accept="image/*"></label>
+<button id="copyimg" disabled>Copy image to clipboard as PNG</button>
+<img id="preview" alt="" hidden>
+
+<p id="status"></p>
+
+<script type="module">
+  import {
+    copyText, readText,
+    textFromPaste, imageFromPaste, isEditableTarget,
+    imageDims, copyImage,
+  } from './clipboard-core.js';
+
+  const $ = (id) => document.getElementById(id);
+  const status = (msg, err) => { $('status').textContent = msg; $('status').className = err ? 'err' : ''; };
+
+  /* ── text ── */
+  $('copy').onclick = async () => {
+    status(await copyText($('txt').value) ? 'Copied.' : 'Copy failed — the browser refused the write.', false);
+  };
+  $('read').onclick = async () => {
+    try {
+      $('txt').value = await readText();
+      status('Read the clipboard into the box.');
+    } catch (e) {
+      status(e.code === 'denied' ? 'No permission to read the clipboard — paste into the box instead (Ctrl/Cmd+V).'
+        : e.code === 'empty' ? 'The system clipboard is empty.'
+        : 'Failed: ' + e.message, true);
+    }
+  };
+
+  /* ── image ── */
+  let current = null, previewUrl = null;
+  async function setImage(blob) {
+    try {
+      const { w, h } = await imageDims(blob);   // gate: rejects non-images, yields metadata
+      current = blob;
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      previewUrl = URL.createObjectURL(blob);
+      $('preview').src = previewUrl;
+      $('preview').hidden = false;
+      $('copyimg').disabled = false;
+      status(`Image ready — ${w}×${h}, ${blob.size} bytes (${blob.type || 'unknown type'}).`);
+    } catch (e) {
+      status(e.code === 'notimage' ? 'That file is not an image.' : 'Failed: ' + e.message, true);
+    }
+  }
+  $('file').onchange = () => {
+    const f = $('file').files[0];
+    if (f) setImage(f);
+    $('file').value = '';
+  };
+  $('copyimg').onclick = async () => {
+    if (!current) return;
+    try {
+      /* called synchronously inside the click — the promise payload keeps
+         Safari's gesture window open. The site passes a function that
+         streams the original bytes; a local blob works the same way. */
+      await copyImage(current);
+      status('Image copied to the clipboard as PNG — paste it somewhere.');
+    } catch (e) {
+      status(e.code === 'unsupported' ? 'This browser exposes no image-clipboard API.'
+        : e.code === 'huge' ? 'Image dimensions exceed the canvas budget.'
+        : e.code === 'decode' || e.code === 'encode' ? 'Could not convert that image to PNG.'
+        : 'Copy failed — the browser blocked clipboard access.', true);
+    }
+  };
+
+  /* ── page-level paste, image-first ──
+     capture phase claims screenshots before the text handler below runs;
+     pastes aimed at the textarea / inputs fall through untouched. */
+  document.addEventListener('paste', (e) => {
+    if (isEditableTarget(e.target)) return;
+    const f = imageFromPaste(e.clipboardData);
+    if (f) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      setImage(f);
+    }
+  }, true);
+  document.addEventListener('paste', (e) => {
+    if (isEditableTarget(e.target)) return;
+    const text = textFromPaste(e.clipboardData);
+    if (!text || !text.trim()) { status('The system clipboard is empty.', true); return; }
+    e.preventDefault();
+    $('txt').value = text;
+    status('Pasted text captured into the box.');
+  });
+</script>
