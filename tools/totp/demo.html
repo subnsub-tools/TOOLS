@@ -1,0 +1,118 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>TOTP / HOTP — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: .75rem 0; }
+  input, select, button { font: inherit; }
+  #secret { width: 100%; }
+  #code { font-size: 2rem; letter-spacing: .15em; font-variant-numeric: tabular-nums; }
+  .err { color: #b00020; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; }
+  dd { margin: 0; font-variant-numeric: tabular-nums; }
+</style>
+
+<h1>TOTP / HOTP — demo</h1>
+<p>Live one-time codes from a Base32 secret (RFC 4226 / 6238, WebCrypto
+HMAC). Paste an <code>otpauth://</code> URI to auto-fill every option.
+Needs HTTPS or localhost.</p>
+
+<label>Secret (Base32 or otpauth:// URI)
+  <input id="secret" autocomplete="off" spellcheck="false" placeholder="JBSWY3DPEHPK3PXP">
+</label>
+<label>Mode
+  <select id="mode"><option value="totp">TOTP (time-based)</option><option value="hotp">HOTP (counter)</option></select>
+</label>
+<label>Algorithm
+  <select id="algo"><option>SHA-1</option><option>SHA-256</option><option>SHA-512</option></select>
+</label>
+<label>Digits
+  <select id="digits"><option>6</option><option>7</option><option>8</option></select>
+</label>
+<label id="period-row">Period
+  <select id="period"><option value="30">30 s</option><option value="60">60 s</option></select>
+</label>
+<label id="counter-row" hidden>Counter
+  <input id="counter" type="number" min="0" step="1" value="0">
+</label>
+
+<p id="code">——————</p>
+<dl>
+  <dt>Previous</dt><dd id="prev">—</dd>
+  <dt>Next</dt><dd id="next">—</dd>
+  <dt>Counter step</dt><dd id="step">—</dd>
+  <dt>Expires in</dt><dd id="rem">—</dd>
+</dl>
+<p id="status"></p>
+
+<script type="module">
+  import { otpCodes, parseOtpAuth, algoNorm } from './totp.js';
+
+  const $ = (id) => document.getElementById(id);
+  const status = (m, e) => { $('status').textContent = m; $('status').className = e ? 'err' : ''; };
+
+  function config(){
+    return {
+      mode: $('mode').value,
+      algorithm: $('algo').value,
+      digits: $('digits').value,
+      period: $('period').value,
+      counter: $('counter').value,
+    };
+  }
+  function syncRows(){
+    const hotp = $('mode').value === 'hotp';
+    $('period-row').hidden = hotp;
+    $('counter-row').hidden = !hotp;
+  }
+
+  $('secret').addEventListener('input', () => {
+    const v = $('secret').value;
+    if (/^\s*otpauth:\/\//i.test(v)) {
+      const p = parseOtpAuth(v);
+      if (p && p.secret) {
+        $('mode').value = p.type;
+        $('algo').value = algoNorm(p.algorithm);
+        $('digits').value = [6, 7, 8].includes(p.digits) ? p.digits : 6;
+        if (p.type === 'totp') $('period').value = p.period === 60 ? 60 : 30;
+        else $('counter').value = p.counter;
+        $('secret').value = p.secret;
+        syncRows();
+      }
+    }
+  });
+  $('mode').addEventListener('change', syncRows);
+
+  let lastSig = '';
+  async function tick(){
+    const secret = $('secret').value;
+    if (!secret.trim()) {
+      lastSig = '';
+      $('code').textContent = '——————';
+      $('prev').textContent = $('next').textContent = $('step').textContent = $('rem').textContent = '—';
+      status('Waiting for a secret.');
+      return;
+    }
+    try {
+      const cfg = config();
+      const r = await otpCodes(secret, cfg);
+      const sig = [r.counter, cfg.mode, cfg.algorithm, cfg.digits, cfg.period].join('|');
+      if (sig !== lastSig || $('code').textContent !== r.current) {
+        lastSig = sig;
+        $('code').textContent = r.current;
+        $('prev').textContent = r.previous || '—';
+        $('next').textContent = r.next;
+        $('step').textContent = r.counter;
+      }
+      $('rem').textContent = r.remaining === null ? '— (fixed counter)' : Math.ceil(r.remaining) + ' s';
+      status('');
+    } catch (e) {
+      lastSig = '';
+      $('code').textContent = '——————';
+      $('prev').textContent = $('next').textContent = $('step').textContent = $('rem').textContent = '—';
+      status(e.message, true);
+    }
+  }
+  tick();
+  setInterval(tick, 250);
+</script>
