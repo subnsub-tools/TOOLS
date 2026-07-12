@@ -1,0 +1,64 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Random — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
+  fieldset { border: 1px solid #ccc; margin: .75rem 0; }
+  label { margin-right: 1rem; }
+  input[type=text], input[type=number] { font: inherit; width: 7rem; }
+  button { font: inherit; }
+  #out { font-family: ui-monospace, monospace; white-space: pre-wrap; border: 1px solid #ccc; padding: .5rem; min-height: 2rem; }
+  .err { color: #b00020; }
+</style>
+
+<h1>Random — demo</h1>
+<p>Uniform random numbers from <code>crypto.getRandomValues</code> with
+rejection sampling — integers, fixed-precision decimals, optional
+no-duplicates draws.</p>
+
+<fieldset><legend>Mode</legend>
+  <label><input type="radio" name="mode" value="int" checked> Integer</label>
+  <label><input type="radio" name="mode" value="dec"> Decimal</label>
+  <label>Decimals <input type="number" id="decimals" value="2" min="0" max="15"></label>
+</fieldset>
+<fieldset><legend>Range</legend>
+  <label>Min <input type="text" id="min" value="1"></label>
+  <label>Max <input type="text" id="max" value="100"></label>
+  <label>Count <input type="text" id="count" value="10"></label>
+</fieldset>
+<fieldset><legend>Options</legend>
+  <label><input type="checkbox" id="unique"> No duplicates</label>
+  <label><input type="radio" name="sort" value="none" checked> Draw order</label>
+  <label><input type="radio" name="sort" value="asc"> Ascending</label>
+  <label><input type="radio" name="sort" value="desc"> Descending</label>
+</fieldset>
+<button id="go">Generate</button>
+
+<p id="err" class="err"></p>
+<div id="out"></div>
+
+<script type="module">
+  import { rndGenerate, rndFormatList } from './random-gen.js';
+
+  const $ = (id) => document.getElementById(id);
+  const picked = (name) => document.querySelector(`input[name=${name}]:checked`).value;
+
+  $('go').onclick = () => {
+    $('err').textContent = '';
+    try {
+      const values = rndGenerate({
+        mode: picked('mode'),
+        min: $('min').value,
+        max: $('max').value,
+        count: $('count').value,
+        decimals: +$('decimals').value,
+        unique: $('unique').checked,
+        sort: picked('sort'),
+      });
+      $('out').textContent = rndFormatList(values, 'newline');
+    } catch (e) {
+      $('err').textContent = e.message;
+      $('out').textContent = '';
+    }
+  };
+</script>
