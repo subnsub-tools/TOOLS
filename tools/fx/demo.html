@@ -1,0 +1,123 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Currency Converter — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: 1rem 0 .25rem; }
+  input, button { font: inherit; }
+  input { width: 8rem; }
+  #result { font-size: 1.3em; margin: 1rem 0 .25rem; }
+  #rate, #date { color: #666; margin: .25rem 0; }
+  ul { padding-left: 1.2rem; }
+  .err { color: #b00020; }
+  code { background: #eee; padding: 0 .25em; }
+</style>
+
+<h1>Currency Converter — demo</h1>
+<p>Cross-rate conversion off a bundled sample USD-base table (obviously fake,
+round numbers — <em>not</em> real rates). The module never fetches; on
+subnsub.com the page feeds it the same document from the same-origin
+<code>/api/rates</code> proxy.</p>
+
+<label>Amount <input id="amount" value="1,234.5"></label>
+<label>From (code) <input id="from" value="usd" maxlength="12"></label>
+<label>To (code) <input id="to" value="eur" maxlength="12"></label>
+<button id="swap" type="button">Swap</button>
+
+<p id="result">—</p>
+<p id="rate">—</p>
+<p id="date"></p>
+
+<h2>Quick conversions</h2>
+<ul id="grid"></ul>
+
+<h2>Saved pairs (in-memory only)</h2>
+<button id="save" type="button">Save current pair</button>
+<ul id="favs"></ul>
+<p>Serialized: <code id="ser">[]</code></p>
+
+<script type="module">
+  import {
+    readRatesPayload, mergeNames, nameOf, parseAmount, crossRate, convert,
+    fmtMoney, fmtRate, rawString, fmtDate, quickTargets,
+    sanitizeFavs, serializeFavs, upsertFav, FAV_MAX,
+  } from './fx-convert.js';
+
+  /* Hand-written stand-in for the /api/rates document — a handful of round
+     illustrative numbers. A real response also carries a `names` map with
+     150+ entries; this one has none, so the module's builtin English names
+     are used (a small map would be discarded as truncated anyway). */
+  const SAMPLE_RATES_PAYLOAD = {
+    ok: true,
+    base: 'usd',
+    date: '2026-01-01',
+    rates: {
+      eur: 0.9, gbp: 0.8, jpy: 150, cny: 7.2, aud: 1.5, cad: 1.35,
+      chf: 0.88, hkd: 7.8, sgd: 1.34, inr: 83, krw: 1350, sek: 10.5,
+      mxn: 17, brl: 5, btc: 0.000016, eth: 0.00031,
+    },
+  };
+
+  const doc = readRatesPayload(SAMPLE_RATES_PAYLOAD);
+  const names = mergeNames(doc.names);
+  let favs = sanitizeFavs([]);   // session-only list; the site persists/syncs this
+
+  const $ = id => document.getElementById(id);
+  const codeVal = id => $(id).value.trim().toLowerCase();
+
+  function renderFavs(){
+    const ul = $('favs'); ul.textContent = '';
+    favs.forEach((p, i) => {
+      const li = document.createElement('li');
+      const out = convert(doc.rates, p.from, p.to, parseAmount(p.amount));
+      li.textContent = p.amount + ' ' + p.from.toUpperCase() + ' = '
+        + fmtMoney(out) + ' ' + p.to.toUpperCase() + ' ';
+      const x = document.createElement('button');
+      x.type = 'button'; x.textContent = 'remove';
+      x.onclick = () => { favs.splice(i, 1); render(); };
+      li.appendChild(x);
+      ul.appendChild(li);
+    });
+    $('ser').textContent = JSON.stringify(serializeFavs(favs));
+  }
+
+  function render(){
+    const from = codeVal('from'), to = codeVal('to');
+    const amt = parseAmount($('amount').value);
+    const rate = crossRate(doc.rates, from, to);
+    const out = convert(doc.rates, from, to, amt);
+
+    $('rate').textContent = isFinite(rate)
+      ? '1 ' + from.toUpperCase() + ' (' + nameOf(from, names) + ') = '
+        + fmtRate(rate) + ' ' + to.toUpperCase() + ' (' + nameOf(to, names) + ')'
+      : 'Unknown pair — code not in the sample table.';
+    $('result').textContent = isFinite(out)
+      ? fmtMoney(out) + ' ' + to.toUpperCase() + '   (raw: ' + rawString(out) + ')'
+      : '—';
+    $('result').className = isFinite(out) ? '' : 'err';
+    $('date').textContent = 'Rates as of ' + fmtDate(doc.date) + ' (sample data)';
+
+    const ul = $('grid'); ul.textContent = '';
+    quickTargets(doc.rates, from).forEach(code => {
+      const li = document.createElement('li');
+      const v = convert(doc.rates, from, code, amt);
+      li.textContent = code.toUpperCase() + ': ' + fmtMoney(v);
+      ul.appendChild(li);
+    });
+    renderFavs();
+  }
+
+  $('amount').addEventListener('input', render);
+  $('from').addEventListener('input', render);
+  $('to').addEventListener('input', render);
+  $('swap').onclick = () => {
+    const f = $('from').value; $('from').value = $('to').value; $('to').value = f;
+    render();
+  };
+  $('save').onclick = () => {
+    if (!upsertFav(favs, codeVal('from'), codeVal('to'), $('amount').value))
+      alert('Rejected: bad pair/amount, or already ' + FAV_MAX + ' distinct pairs saved.');
+    render();
+  };
+  render();
+</script>
