@@ -1,0 +1,53 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Password — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: .5rem 0; }
+  input, button { font: inherit; }
+  #pwd { font-family: ui-monospace, monospace; font-size: 1.2rem; word-break: break-all; margin: 1rem 0 .25rem; }
+  #meter { color: #555; }
+  .err { color: #b00020; }
+</style>
+
+<h1>Password — demo</h1>
+<p>Generates a password with <code>crypto.getRandomValues</code> and rejection
+sampling — every character uniform over the chosen alphabet.</p>
+
+<label>Length <input type="number" id="len" value="16" min="6" max="64"></label>
+<label><input type="checkbox" id="lower" checked> a–z</label>
+<label><input type="checkbox" id="upper" checked> A–Z</label>
+<label><input type="checkbox" id="digit" checked> 0–9</label>
+<label><input type="checkbox" id="symbol"> !@#$</label>
+<label><input type="checkbox" id="ambig"> Exclude ambiguous (0 O 1 l I)</label>
+<button id="gen">Generate</button>
+
+<p id="pwd"></p>
+<p id="meter"></p>
+
+<script type="module">
+  import { generatePassword } from './password-gen.js';
+
+  const $ = (id) => document.getElementById(id);
+
+  function run() {
+    const sets = ['lower', 'upper', 'digit', 'symbol'].filter((k) => $(k).checked);
+    try {
+      const { password, strength } = generatePassword({
+        length: Math.max(1, +$('len').value || 16),
+        sets,
+        excludeAmbiguous: $('ambig').checked,
+      });
+      $('pwd').textContent = password;
+      $('pwd').className = '';
+      $('meter').textContent = `${strength.label} · ${strength.bits} bits`;
+    } catch (e) {
+      $('pwd').textContent = e.message;
+      $('pwd').className = 'err';
+      $('meter').textContent = '';
+    }
+  }
+
+  $('gen').onclick = run;
+  run();
+</script>
