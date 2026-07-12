@@ -1,0 +1,64 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Regex Tester — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: 1rem 0 .25rem; }
+  label.inline { display: inline-block; margin: 0 .75rem 0 0; font-family: ui-monospace, monospace; }
+  input, button, textarea { font: inherit; }
+  input[type=text], textarea { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; }
+  pre { background: #f4f4f4; padding: .6rem; white-space: pre-wrap; word-break: break-all; }
+  .err { color: #b00020; }
+</style>
+
+<h1>Regex Tester — demo</h1>
+<p>The platform's own <code>RegExp</code> against your test text — every
+match with offset and capture groups.</p>
+
+<label for="pat">Pattern</label>
+<input type="text" id="pat" placeholder="(\w+)@(\w+)\.com" autocomplete="off" spellcheck="false">
+
+<p>
+  Flags:
+  <label class="inline"><input type="checkbox" class="flag" value="g" checked> g</label>
+  <label class="inline"><input type="checkbox" class="flag" value="i"> i</label>
+  <label class="inline"><input type="checkbox" class="flag" value="m"> m</label>
+  <label class="inline"><input type="checkbox" class="flag" value="s"> s</label>
+</p>
+
+<label for="test">Test text</label>
+<textarea id="test" rows="4" placeholder="The quick brown fox jumps over the lazy dog"></textarea>
+
+<p id="sum"></p>
+<pre id="list">—</pre>
+<p id="err" class="err"></p>
+
+<script type="module">
+  import { run } from './regex-test.js';
+
+  const $ = (id) => document.getElementById(id);
+
+  function refresh() {
+    const pat = $('pat').value, test = $('test').value;
+    const flags = [...document.querySelectorAll('.flag:checked')].map(c => c.value).join('');
+    $('err').textContent = '';
+    let ms;
+    try {
+      ms = run(pat, test, flags);
+    } catch (e) {
+      $('err').textContent = e.message;
+      $('sum').textContent = '';
+      $('list').textContent = '—';
+      return;
+    }
+    $('sum').textContent = pat && test ? (ms.length === 0 ? 'No matches' : `${ms.length} matches`) : '';
+    $('list').textContent = ms.length ? ms.map(m => {
+      const groups = m.slice(1).filter(Boolean).map(g => `"${g}"`).join(', ');
+      return `idx ${m.index}  ${m[0] || '(empty)'}${groups ? `  — groups: ${groups}` : ''}`;
+    }).join('\n') : '—';
+  }
+
+  $('pat').addEventListener('input', refresh);
+  $('test').addEventListener('input', refresh);
+  document.querySelectorAll('.flag').forEach(c => c.addEventListener('change', refresh));
+</script>
