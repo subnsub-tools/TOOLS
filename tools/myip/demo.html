@@ -1,0 +1,66 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>My IP — WebRTC exposure demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: .75rem 0 .25rem; }
+  input, button { font: inherit; }
+  pre { padding: .5rem; border: 1px solid #999; min-height: 3rem; white-space: pre-wrap; }
+  h2 { margin-top: 2rem; font-size: 1.1rem; }
+</style>
+
+<h1>My IP — WebRTC exposure demo</h1>
+<p>Collects the addresses WebRTC discloses through ICE candidates,
+classifies each (private / link-local / CGNAT / loopback / ULA vs public),
+and renders the leak verdict against the public IP you paste in (copy it
+from any "what is my IP" page). With STUN enabled the probe's only network
+traffic is one STUN binding request; untick it for a fully local probe.
+Needs a browser with WebRTC.</p>
+
+<label><input type="checkbox" id="stun" checked> Contact STUN server (required to surface public candidates)</label>
+<label>Public IP websites see for you (optional) <input id="pub" placeholder="203.0.113.7" size="30"></label>
+<button id="run">Detect</button>
+<pre id="out"></pre>
+
+<h2>Classify a single address</h2>
+<label>Address <input id="addr" value="100.72.3.9" size="30"></label>
+<button id="cls">Classify</button>
+<span id="clsout"></span>
+
+<h2>Network type from ASN / org</h2>
+<label>Org string <input id="org" value="EXAMPLE-HOSTING-GMBH" size="30"></label>
+<label>ASN (number, optional) <input id="asn" value="24940" size="10"></label>
+<button id="asnbtn">Classify</button>
+<span id="asnout"></span>
+
+<script type="module">
+  import { detectWebRTCAddresses, assessExposure, classifyCandidateAddress, classifyASN } from './ip-exposure.js';
+
+  const $ = (id) => document.getElementById(id);
+  const VERDICT = { 'leak': 'Leak Detected', 'protected': 'Protected', 'no-leak': 'No Leak' };
+
+  $('run').onclick = async () => {
+    $('out').textContent = 'Gathering candidates (up to 5 s)…';
+    const ips = await detectWebRTCAddresses($('stun').checked ? {} : { iceServers: [] });
+    const pub = $('pub').value.trim();
+    const lines = [];
+    ips.local.forEach((a) => lines.push('local   ' + a));
+    ips.pub.forEach((a) => lines.push('public  ' + a));
+    if (!lines.length) lines.push('(no addresses disclosed)');
+    const v = assessExposure(ips, pub);
+    lines.push('');
+    lines.push('Verdict: ' + VERDICT[v.status] + (pub ? '' : '   (no public IP supplied — leak comparison skipped)'));
+    v.leaked.forEach((a) => lines.push('  leaked: ' + a));
+    $('out').textContent = lines.join('\n');
+  };
+
+  $('cls').onclick = () => {
+    const r = classifyCandidateAddress($('addr').value.trim());
+    $('clsout').textContent = r === null ? 'null (not an IP address)' : r;
+  };
+
+  $('asnbtn').onclick = () => {
+    const r = classifyASN($('org').value.trim(), +$('asn').value || 0);
+    $('asnout').textContent = r.type + '  (severity: ' + r.c + ')';
+  };
+</script>
