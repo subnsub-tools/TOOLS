@@ -1,0 +1,53 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>URL Encoder / Decoder — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: 1rem 0 .25rem; }
+  label.inline { display: inline-block; margin: 0 1rem 0 0; }
+  input, button, textarea { font: inherit; }
+  textarea { width: 100%; box-sizing: border-box; }
+  pre { background: #f4f4f4; padding: .6rem; white-space: pre-wrap; word-break: break-all; }
+  .err { color: #b00020; }
+</style>
+
+<h1>URL Encoder / Decoder — demo</h1>
+<p>Percent-encoding both ways. <b>Component</b> encodes every reserved
+character; <b>Full URL</b> preserves <code>:/?#[]</code> structure.</p>
+
+<p>
+  <label class="inline"><input type="radio" name="mode" value="decode" checked> Decode</label>
+  <label class="inline"><input type="radio" name="mode" value="encode"> Encode</label>
+  <span style="margin: 0 .5rem">·</span>
+  <label class="inline"><input type="radio" name="meth" value="component" checked> Component</label>
+  <label class="inline"><input type="radio" name="meth" value="full"> Full URL</label>
+</p>
+
+<label for="in">Input</label>
+<textarea id="in" rows="4" placeholder="https%3A%2F%2Fexample.com%2Fpath%3Fq%3Dhello%20world"></textarea>
+
+<label>Output</label>
+<pre id="out">—</pre>
+<p id="err" class="err"></p>
+
+<script type="module">
+  import { encode, decode } from './url-codec.js';
+
+  const $ = (id) => document.getElementById(id);
+  const pick = (name) => document.querySelector(`[name=${name}]:checked`).value;
+
+  function refresh() {
+    const v = $('in').value;
+    $('err').textContent = '';
+    if (!v) { $('out').textContent = '—'; return; }
+    try {
+      $('out').textContent = pick('mode') === 'encode' ? encode(v, pick('meth')) : decode(v, pick('meth'));
+    } catch (e) {
+      $('out').textContent = '—';
+      $('err').textContent = 'Invalid encoded string';
+    }
+  }
+
+  $('in').addEventListener('input', refresh);
+  document.querySelectorAll('input[type=radio]').forEach(r => r.addEventListener('change', refresh));
+</script>
