@@ -74,9 +74,10 @@ gesture — autoplay policies keep the AudioContext suspended until then.
   a run of equal one-beat slots: tracks merge, chords collapse to their
   top note (skyline), note starts snap to the coarsest grid that fits
   every gap, rests fill the silence, channel-10 percussion is skipped.
-  Format-2 files, SMPTE timing, truncated chunks and files over 1000
-  slots are rejected with `Error('midi')` — never silently trimmed. A
-  file written by `buildMidi()` round-trips exactly.
+  Format-2 files, SMPTE timing and files over 1000 slots are rejected with
+  `Error('midi')`; other malformed input is parsed defensively (best-effort
+  over the chunks it can read) rather than trusted. A file written by
+  `buildMidi()` round-trips exactly.
 
 ## Site integration (not in this repo)
 

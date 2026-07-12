@@ -68,8 +68,10 @@ does not exist elsewhere.
   from `ClipboardItem`; PNG input passes through byte-identical, anything
   else is re-encoded via canvas.
 - **Decode is budgeted.** A byte cap alone does not bound *decoded* size,
-  so `imageDims()` metadata feeds a hard canvas budget (16384 px per axis,
-  64 MP area) that both the gate and the re-encode enforce.
+  so `imageDims()` reports the pixel dimensions and `withinCanvasBudget()`
+  tests them against a hard budget (16384 px per axis, 64 MP area); the
+  on-site flow gates on that before `toPng()` re-encodes through a canvas.
+  PNG input skips re-encoding entirely (byte-identical pass-through).
 
 ## Site integration (server-side, not in this repo)
 

@@ -42,8 +42,10 @@ cronRelative(fireDate);           // → 'in 12m' (optional now-ms 2nd arg)
 - `cronNext()` walks the local wall clock minute by minute (skipping whole
   days/hours a coarser field rules out), so results land where a real
   crontab would across DST changes. Impossible schedules (`0 0 31 2 *`)
-  return fewer or zero results after a one-year search bound instead of
-  hanging.
+  return fewer or zero results once a bounded search budget is spent,
+  instead of hanging. The budget is an iteration cap, not a fixed calendar
+  window — a rare-but-real schedule like `0 0 29 2 *` can still resolve
+  several years out.
 - Numbers only — no seconds field, no `@daily` macros, no `L`/`W`/`#`
   extensions, no `JAN`/`MON` names. Malformed parts of a field are
   ignored rather than thrown; a field that expands to nothing simply never

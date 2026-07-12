@@ -53,7 +53,9 @@ change a tile's signature).</p>
       b.textContent = (pins.includes(id) ? '− ' : '+ ') + id;
       b.onclick = () => {
         const r = togglePin(pins, id, { maxPins: cap });
-        $('pins').value = serializePins(r.pins) || '[]';
+        pins = r.pins;                                    // adopt the returned state
+        $('pins').value = serializePins(pins) || '[]';
+        b.textContent = (pins.includes(id) ? '− ' : '+ ') + id;
         report(r);
       };
       return b;
