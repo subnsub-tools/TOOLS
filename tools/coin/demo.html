@@ -1,0 +1,53 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Coin — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
+  button { font: inherit; margin-right: .5rem; }
+  #last { font-size: 2rem; margin: 1rem 0; }
+  #history { font-family: ui-monospace, monospace; word-break: break-all; color: #555; }
+</style>
+
+<h1>Coin — demo</h1>
+<p>Fair coin flips — one bit of <code>crypto.getRandomValues</code> entropy
+per flip. 0 = heads, 1 = tails.</p>
+
+<p>
+  <button data-n="1">Flip ×1</button>
+  <button data-n="10">Flip ×10</button>
+  <button data-n="1000">Flip ×1000</button>
+  <button id="reset">Reset</button>
+</p>
+
+<p id="last">—</p>
+<p id="stats">No flips yet.</p>
+<p id="history"></p>
+
+<script type="module">
+  import { coinFlipBatch, createCoinStats, coinPushFlip, coinPct } from './coin-flip.js';
+
+  const $ = (id) => document.getElementById(id);
+  let stats = createCoinStats();
+
+  function render(batch) {
+    if (batch) $('last').textContent = batch.length === 1
+      ? (batch[0] === 0 ? 'HEADS' : 'TAILS')
+      : `${batch.filter((r) => r === 0).length} heads / ${batch.filter((r) => r === 1).length} tails`;
+    else $('last').textContent = '—';
+    $('stats').textContent = stats.total
+      ? `${stats.total} flips · heads ${stats.heads} (${coinPct(stats.heads, stats.total)}) · ` +
+        `tails ${stats.tails} (${coinPct(stats.tails, stats.total)}) · ` +
+        `longest streak ${stats.longest} × ${stats.longestSide === 0 ? 'heads' : 'tails'}`
+      : 'No flips yet.';
+    $('history').textContent = stats.history.map((r) => (r === 0 ? 'H' : 'T')).join('');
+  }
+
+  document.querySelectorAll('button[data-n]').forEach((b) => {
+    b.onclick = () => {
+      const batch = coinFlipBatch(+b.dataset.n);
+      for (const r of batch) coinPushFlip(stats, r);
+      render(batch);
+    };
+  });
+  $('reset').onclick = () => { stats = createCoinStats(); render(null); };
+</script>
