@@ -1,0 +1,152 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Speed Test orchestration — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 46rem; margin: 3rem auto; padding: 0 1rem; }
+  fieldset { margin: .75rem 0; border: 1px solid #999; }
+  fieldset label { margin-right: 1rem; }
+  input, button { font: inherit; }
+  pre { padding: .5rem; border: 1px solid #999; overflow: auto; }
+  h2 { margin-top: 2rem; font-size: 1.1rem; }
+  #hist div { margin: .2rem 0; }
+</style>
+
+<h1>Speed Test orchestration — demo</h1>
+<p>The transfer engine (<code>@cloudflare/speedtest</code>, MIT) is not part
+of this repository, so this page does not run a real test — it feeds the
+module the real measurement plans plus a hand-written sample of the engine's
+results object.</p>
+
+<h2>Measurement plan</h2>
+<fieldset>
+  <legend>Profile</legend>
+  <label><input type="radio" name="profile" value="quick"> quick</label>
+  <label><input type="radio" name="profile" value="standard" checked> standard</label>
+  <label><input type="radio" name="profile" value="thorough"> thorough</label>
+</fieldset>
+<fieldset>
+  <legend>Include</legend>
+  <label><input type="checkbox" id="inc-download" checked> download</label>
+  <label><input type="checkbox" id="inc-upload" checked> upload</label>
+  <label><input type="checkbox" id="inc-latency" checked> latency (+ packet loss)</label>
+</fieldset>
+<pre id="plan"></pre>
+
+<h2>Summary calibers (sample engine summary)</h2>
+<pre id="summary"></pre>
+
+<h2>Raw samples grouped by transfer size</h2>
+<pre id="details"></pre>
+
+<h2>History ledger (cap 5 in this demo)</h2>
+<button id="save">Save sample result</button>
+<button id="merge">Merge stored snapshot</button>
+<div id="hist"></div>
+
+<script type="module">
+  import {
+    buildMeasurements, engineConfig, bufferbloat, summarizeResult,
+    bwRows, medianOf, fmtBps, fmtMs, fmtLoss, fmtLoaded,
+    addItem, removeItem, mergeItems,
+  } from './speed-orchestrate.js';
+
+  const $ = (id) => document.getElementById(id);
+
+  /* ── plan ── */
+  function renderPlan() {
+    const profile = document.querySelector('input[name="profile"]:checked').value;
+    const includes = {
+      download: $('inc-download').checked,
+      upload: $('inc-upload').checked,
+      latency: $('inc-latency').checked,
+    };
+    const meas = buildMeasurements(profile, includes);
+    $('plan').textContent = meas.length
+      ? 'new SpeedTest(' + JSON.stringify(engineConfig(meas), null, 2) + ')'
+      : '(empty plan — the site refuses to start a run with nothing included)';
+  }
+  document.querySelectorAll('input[name="profile"], fieldset input[type="checkbox"]')
+    .forEach((i) => i.addEventListener('change', renderPlan));
+  renderPlan();
+
+  /* ── sample engine output (hand-written, obviously fake) ── */
+  const SAMPLE_SUMMARY = {
+    download: 94360000, upload: 28710000,
+    latency: 14.2, jitter: 2.1, packetLoss: 0.0025,
+    downLoadedLatency: 48.9, downLoadedJitter: 7.7,
+    upLoadedLatency: 96.3, upLoadedJitter: 12.4,
+    totalDurationMs: 32100,
+  };
+  const SAMPLE_DL_POINTS = [
+    { bytes: 1e5, bps: 61.2e6, duration: 22 },
+    { bytes: 1e5, bps: 74.9e6, duration: 18 },
+    { bytes: 1e5, bps: 12.0e6, duration: 6 },   // dropped: under the 10 ms validity floor
+    { bytes: 1e6, bps: 88.4e6, duration: 96 },
+    { bytes: 1e6, bps: 90.8e6, duration: 93 },
+    { bytes: 1e7, bps: 93.6e6, duration: 862 },
+    { bytes: 1e7, bps: 95.1e6, duration: 843 },
+  ];
+  const SAMPLE_UL_POINTS = [
+    { bytes: 1e5, bps: 18.4e6, duration: 46 },
+    { bytes: 1e5, bps: 21.0e6, duration: 41 },
+    { bytes: 1e6, bps: 26.7e6, duration: 305 },
+    { bytes: 1e6, bps: 27.9e6, duration: 297 },
+  ];
+
+  const bb = bufferbloat(SAMPLE_SUMMARY);
+  $('summary').textContent = [
+    'download      ' + fmtBps(SAMPLE_SUMMARY.download),
+    'upload        ' + fmtBps(SAMPLE_SUMMARY.upload),
+    'latency       ' + fmtMs(SAMPLE_SUMMARY.latency) + '   jitter ' + fmtMs(SAMPLE_SUMMARY.jitter),
+    'packet loss   ' + fmtLoss(SAMPLE_SUMMARY.packetLoss),
+    'loaded down   ' + fmtLoaded(SAMPLE_SUMMARY.downLoadedLatency, SAMPLE_SUMMARY.downLoadedJitter),
+    'loaded up     ' + fmtLoaded(SAMPLE_SUMMARY.upLoadedLatency, SAMPLE_SUMMARY.upLoadedJitter),
+    'bufferbloat   ' + (bb ? '+' + Math.round(bb.ms) + ' ms (' + bb.grade + ')' : '—'),
+    '',
+    'history record: ' + JSON.stringify(summarizeResult(SAMPLE_SUMMARY, 'standard')),
+  ].join('\n');
+
+  const detLines = (rows) => rows.map((r) =>
+    r.label.padStart(7) + '   median ' + fmtBps(medianOf(r.vals) * 1e6) +
+    '   samples [' + r.vals.map((v) => v.toFixed(1)).join(', ') + '] Mbps');
+  $('details').textContent = [
+    'download:', ...detLines(bwRows(SAMPLE_DL_POINTS)),
+    '', 'upload:', ...detLines(bwRows(SAMPLE_UL_POINTS)),
+  ].join('\n');
+
+  /* ── ledger playground ── */
+  const CAP = 5;
+  let items = [], deleted = {}, seq = 0;
+  const STORED = [  // a canned "previously stored" snapshot to merge in
+    { id: 'stored-1', savedAt: Date.now() - 864e5, down: 88.1e6, up: 24.0e6, latency: 16, jitter: 3, loss: 0, profile: 'standard' },
+    { id: 'stored-2', savedAt: Date.now() - 2 * 864e5, down: 91.5e6, up: 25.2e6, latency: 15, jitter: 2, loss: 0.001, profile: 'quick' },
+  ];
+  function renderHist() {
+    const el = $('hist');
+    el.textContent = '';
+    if (!items.length) { el.textContent = '(empty)'; return; }
+    items.forEach((it) => {
+      const row = document.createElement('div');
+      const del = document.createElement('button');
+      del.textContent = 'delete';
+      del.onclick = () => { deleted[it.id] = 1; items = removeItem(items, it.id); renderHist(); };
+      row.appendChild(del);
+      row.appendChild(document.createTextNode(
+        ' ' + it.id + '   down ' + fmtBps(it.down) + '   up ' + fmtBps(it.up) +
+        '   ' + fmtMs(it.latency) + '   ' + it.profile));
+      el.appendChild(row);
+    });
+  }
+  $('save').onclick = () => {
+    seq++;
+    const rec = summarizeResult(
+      { ...SAMPLE_SUMMARY, download: SAMPLE_SUMMARY.download + seq * 1e6 }, 'standard');
+    items = addItem(items, { id: 'run-' + seq, savedAt: Date.now() + seq, ...rec }, CAP);
+    renderHist();
+  };
+  $('merge').onclick = () => {
+    items = mergeItems(STORED, items, deleted, CAP);
+    renderHist();
+  };
+  renderHist();
+</script>
