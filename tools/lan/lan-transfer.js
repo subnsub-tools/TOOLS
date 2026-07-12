@@ -103,9 +103,8 @@ function parsePeerName(raw) { const s = String(raw == null ? '' : raw); const i 
  *        True streaming to a real file, constant memory, TB-scale.
  *    • MemSink — in-memory Blob assembly; the default openSink hard-caps
  *        it (MEM_HARD_CAP) so it declines instead of silently OOM-ing.
- *  (The in-page build slots an IndexedDB chunk store between the two —
- *  bytes reach disk without FSA, then download at the end. It's
- *  storage-bound, so it stays with the site; any object with the same
+ *  (The in-page build can slot a disk-backed chunk store between the two;
+ *  it's storage-bound, so it stays with the site. Any object with the same
  *  three methods plugs in through the openSink option.)
  *  Receive-side backpressure (pause/resume + RECV_HIGH/LOW) keeps the
  *  write queue bounded when the disk is slower than the wire.

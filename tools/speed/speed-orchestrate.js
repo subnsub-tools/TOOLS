@@ -212,11 +212,10 @@ export function bwRows(points){
 /* ── result history ledger ─────────────────────────────────────────────
    The pure data model behind the history list: a bounded, newest-first
    array of finished-run records — summarizeResult() output plus whatever
-   identity the store stamps on (the hosted version adds id / savedAt /
-   isp / colo server-side). The cap is a parameter here; on subnsub.com
-   it is set per account tier and the server rolls the oldest row off
-   (FIFO), so saving never needs gardening and never refuses. Every op
-   returns a fresh array. */
+   identity the store stamps on server-side. The cap is a parameter here;
+   on subnsub.com it is configured server-side and the server rolls the
+   oldest row off (FIFO), so saving never needs gardening and never
+   refuses. Every op returns a fresh array. */
 
 /* Prepend the newest record and trim to the cap — adding at the cap
    rolls the oldest row off the end. */

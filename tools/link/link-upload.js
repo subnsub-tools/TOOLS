@@ -44,9 +44,8 @@
 
 export const CONCURRENCY = 3;
 
-/* Baseline caps — mirror the free tier of the site's upload Function (the
-   real enforcement point). The site lifts them per account tier at
-   runtime; callers here pass their own maxBytes/maxBatch instead. */
+/* Baseline caps — a conservative default. The real cap is configured and
+   enforced server-side; callers here pass their own maxBytes/maxBatch. */
 export const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
 export const DEFAULT_MAX_BATCH = 1;
 
@@ -80,10 +79,10 @@ export function isVideoFile(file){
 /* ── link-lifetime model ──
    The lifetime picker is a fixed chip set; a stored or requested value
    that is not on the list must fall back to a caller-chosen default —
-   never a silently-invented in-between. On subnsub.com the three longest
-   presets are gated to the paid tier and the no-choice default follows
-   the session tier (5/10/30 min); both are account policy, not module
-   logic, and the server re-validates every request regardless. */
+   never a silently-invented in-between. On subnsub.com which presets are
+   offered and what the no-choice default is are account policy applied
+   server-side, not module logic, and the server re-validates every
+   request regardless. */
 export const EXPIRY_PRESETS = [5, 10, 15, 30, 60, 120, 180, 300]; /* minutes */
 
 /* Exact integer that is on the allowed list, or null. Exact-integer

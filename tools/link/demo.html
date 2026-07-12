@@ -115,7 +115,7 @@ the video is never sent anywhere. Cap set to 15&nbsp;MB here.</p>
       (minutes == null ? 'omitted (server default applies)' : minutes + ' min');
     const { items, ignored } = await uploadBatch(files, {
       upload: mockUpload,
-      maxBytes: 15 * 1024 * 1024,   /* the site configures these per account tier */
+      maxBytes: 15 * 1024 * 1024,   /* demo value; the site enforces its own server-side */
       maxBatch: 20,
       expiresInMinutes: minutes,
       onStart(item){ rowFor(item).status.textContent = 'uploading…'; },

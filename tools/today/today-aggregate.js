@@ -67,7 +67,7 @@ export function serializePins(pins){
 }
 
 /* Toggle a tool on/off the board. Unpin always works; only NEW pins are
-   gated by maxPins (the site derives that cap from the account tier).
+   gated by maxPins (the site configures that cap on its own side).
    Returns { pins, changed, capped } — pins is a new array when changed. */
 export function togglePin(pins, id, opts){
   opts = opts || {};
