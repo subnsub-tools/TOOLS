@@ -1,0 +1,53 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Diff — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 44rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: 1rem 0 .25rem; }
+  textarea { font: inherit; width: 100%; }
+  #summary { margin: 1rem 0 .25rem; }
+  #out { font-family: ui-monospace, monospace; white-space: pre-wrap; border: 1px solid #ccc; padding: .5rem; }
+  .add { background: #e0ffe0; }
+  .del { background: #ffe0e0; }
+</style>
+
+<h1>Diff — demo</h1>
+<p>Line-by-line LCS diff of two texts, computed locally. Each side is capped
+at 800 lines.</p>
+
+<label>Original <textarea id="a" rows="6">the quick brown fox
+jumps over
+the lazy dog</textarea></label>
+<label>Changed <textarea id="b" rows="6">the quick brown fox
+leaps over
+the lazy dog
+and runs away</textarea></label>
+
+<p id="summary"></p>
+<div id="out"></div>
+
+<script type="module">
+  import { diffLines } from './text-diff.js';
+
+  const $ = (id) => document.getElementById(id);
+
+  function run() {
+    const r = diffLines($('a').value, $('b').value);
+    if (!r) {
+      $('summary').textContent = 'Inputs too large (max ~800 lines each)';
+      $('out').textContent = '';
+      return;
+    }
+    $('summary').textContent = `+${r.added} added · −${r.removed} removed · ${r.unchanged} unchanged`;
+    $('out').replaceChildren(...r.ops.map((op) => {
+      const line = document.createElement('div');
+      line.className = op.t === '+' ? 'add' : op.t === '-' ? 'del' : '';
+      line.textContent = (op.t === '+' ? '+ ' : op.t === '-' ? '− ' : '  ') + op.v;
+      return line;
+    }));
+  }
+
+  $('a').oninput = run;
+  $('b').oninput = run;
+  run();
+</script>
