@@ -1,0 +1,46 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Hash — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: 1rem 0 .25rem; }
+  textarea, input, button { font: inherit; }
+  textarea { width: 100%; }
+  dt { margin-top: .75rem; font-weight: 600; }
+  dd { margin: 0; font-family: ui-monospace, monospace; word-break: break-all; }
+  .empty { color: #888; }
+</style>
+
+<h1>Hash — demo</h1>
+<p>SHA-1 / SHA-256 / SHA-512 of text or a file, entirely in-browser via
+WebCrypto. Needs HTTPS or localhost.</p>
+
+<label>Text <textarea id="text" rows="4" placeholder="Type to hash…"></textarea></label>
+<label>…or a file <input type="file" id="file"></label>
+
+<dl>
+  <dt>SHA-1</dt><dd id="sha1" class="empty">—</dd>
+  <dt>SHA-256</dt><dd id="sha256" class="empty">—</dd>
+  <dt>SHA-512</dt><dd id="sha512" class="empty">—</dd>
+</dl>
+
+<script type="module">
+  import { hashBytes } from './hash-digest.js';
+
+  const $ = (id) => document.getElementById(id);
+  const show = (d) => ['sha1', 'sha256', 'sha512'].forEach((k) => {
+    $(k).textContent = d ? d[k] : '—';
+    $(k).className = d ? '' : 'empty';
+  });
+
+  $('text').oninput = async () => {
+    const v = $('text').value;
+    show(v ? await hashBytes(v) : null);
+  };
+
+  $('file').onchange = async () => {
+    const f = $('file').files[0];
+    if (!f) return;
+    show(await hashBytes(new Uint8Array(await f.arrayBuffer())));
+  };
+</script>
