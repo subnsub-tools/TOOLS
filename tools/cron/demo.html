@@ -1,0 +1,65 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Cron Expression — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: .75rem 0 .25rem; }
+  input { font: 14px/1.4 ui-monospace, monospace; width: 100%; box-sizing: border-box; }
+  button { font: inherit; margin: .25rem .25rem 0 0; }
+  table { border-collapse: collapse; margin-top: .5rem; }
+  td { padding: .15rem .75rem .15rem 0; font-variant-numeric: tabular-nums; }
+  .err { color: #b00020; }
+  #human { font-weight: 600; }
+</style>
+
+<h1>Cron Expression — demo</h1>
+<p>Classic 5-field cron (<code>minute hour day month weekday</code>) —
+plain-language description plus the next 10 local-time runs.</p>
+
+<label>Expression</label>
+<input id="in" spellcheck="false" autocomplete="off" value="*/15 * * * *">
+<p>
+  <button data-cron="* * * * *">every minute</button>
+  <button data-cron="*/15 * * * *">every 15 min</button>
+  <button data-cron="0 * * * *">hourly</button>
+  <button data-cron="0 0 * * *">daily</button>
+  <button data-cron="0 9 * * 1-5">9:00 weekdays</button>
+  <button data-cron="0 0 1 * *">monthly</button>
+</p>
+
+<p id="human">—</p>
+<p id="err" class="err"></p>
+<table id="runs"></table>
+
+<script type="module">
+  import { cronDescribe, cronNext, cronRelative } from './cron-parse.js';
+
+  const $ = (id) => document.getElementById(id);
+
+  function run(){
+    const v = $('in').value.trim();
+    $('err').textContent = '';
+    $('runs').textContent = '';
+    if (!v) { $('human').textContent = '—'; return; }
+    if (v.split(/\s+/).length !== 5) {
+      $('human').textContent = '—';
+      $('err').textContent = 'Expected 5 fields: minute hour day month weekday';
+      return;
+    }
+    $('human').textContent = cronDescribe(v) || v;
+    for (const [i, d] of cronNext(v, 10).entries()) {
+      const tr = document.createElement('tr');
+      for (const text of [i + 1, d.toLocaleString(), cronRelative(d)]) {
+        const td = document.createElement('td');
+        td.textContent = text;
+        tr.appendChild(td);
+      }
+      $('runs').appendChild(tr);
+    }
+  }
+
+  $('in').addEventListener('input', run);
+  document.querySelectorAll('[data-cron]').forEach((b) =>
+    b.addEventListener('click', () => { $('in').value = b.dataset.cron; run(); }));
+  run();
+</script>
