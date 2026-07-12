@@ -1,0 +1,71 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>LAN File Transfer — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; }
+  button { font: inherit; margin: .25rem .5rem .25rem 0; }
+  #peers { margin: .75rem 0 1rem; }
+  #xfers { padding-left: 1.25rem; }
+  #xfers li { margin: .25rem 0; }
+  .muted { color: #666; }
+</style>
+
+<h1>LAN File Transfer — demo</h1>
+<p>Open this page in <strong>two tabs of the same browser</strong>. The tabs
+discover each other over a BroadcastChannel (no server anywhere) and file
+bytes move over a direct WebRTC data channel. Click the other tab's device
+button to send it a file — the first file asks for an accept over there, then
+it downloads on arrival.</p>
+
+<p>This device: <strong id="self"></strong> · status: <span id="status">—</span></p>
+<div id="peers" class="muted">Looking for other tabs…</div>
+<ul id="xfers"></ul>
+<input type="file" id="file" hidden>
+
+<script type="module">
+  import { TransferNode, deviceLabel } from './lan-transfer.js';
+
+  const $ = (id) => document.getElementById(id);
+  const fmt = (n) => !Number.isFinite(n) ? '' : n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
+  const rows = new Map();   /* one <li> per transfer, keyed by direction + item id */
+  const row = (item, dir) => { const k = dir + ':' + item.id; let li = rows.get(k); if (!li) { li = document.createElement('li'); rows.set(k, li); $('xfers').appendChild(li); } return li; };
+  const label = (item, dir) => (dir === 'send' ? '↑ ' : '↓ ') + (item.name || (item.file && item.file.name) || 'file');
+
+  const node = new TransferNode({
+    name: deviceLabel(),
+    /* iceServers defaults to [] — host candidates only, which is exactly right
+       for two tabs of one browser (and for a real LAN). */
+    ui: {
+      setStatus: (s) => { $('status').textContent = s; },
+      renderRoster: (roster) => {
+        const host = $('peers'); host.textContent = '';
+        if (!roster.size) { host.textContent = 'Looking for other tabs… (open this page in a second tab)'; return; }
+        for (const [id, e] of roster) {
+          const b = document.createElement('button');
+          b.textContent = 'Send a file to “' + e.name + '”';
+          b.onclick = () => { const inp = $('file'); inp.onchange = () => { if (inp.files.length) node.sendTo(id, inp.files); inp.value = ''; }; inp.click(); };
+          host.appendChild(b);
+        }
+      },
+      addXfer: (pid, pname, item, dir) => { row(item, dir).textContent = label(item, dir) + (dir === 'send' ? ' → ' : ' ← ') + pname + ' — 0%'; },
+      xferProgress: (pid, item, frac, rate, eta, dir) => { row(item, dir).textContent = label(item, dir) + ' — ' + Math.round((frac || 0) * 100) + '%' + (rate ? ' · ' + fmt(rate) + '/s' : ''); },
+      xferDone: (pid, item, dir) => { row(item, dir).textContent = label(item, dir) + (dir === 'send' ? ' — sent ✓' : ' — received ✓ (downloaded)'); },
+      xferError: (pid, item, dir) => { row(item, dir).textContent = label(item, dir) + ' — ' + (item.status === 'declined' ? 'declined' : item.status === 'canceled' ? 'canceled' : 'failed'); },
+      xferSuspend: (pid, item, dir) => { row(item, dir).textContent = label(item, dir) + ' — connection lost, resumable for 5 min…'; },
+      xferAwait: (pid, item) => { row(item, 'send').textContent = label(item, 'send') + ' — waiting for the other tab to accept…'; },
+      /* First file from a device you've never exchanged files with. */
+      promptAccept: (pid, rec) => confirm('Accept “' + rec.name + '” (' + fmt(rec.size) + ') from the other tab?')
+        ? Promise.resolve() : Promise.reject(new Error('declined')),
+      /* The default in-memory sink finished — hand the file to the browser. */
+      downloadBlob: (blob, name) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = name || 'file';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => { try { URL.revokeObjectURL(url); } catch {} }, 60000);
+      },
+    },
+  });
+  $('self').textContent = node.name;
+  node.join();
+  addEventListener('pagehide', () => node.close());
+</script>
