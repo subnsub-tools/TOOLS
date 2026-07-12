@@ -1,0 +1,54 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>QR Code — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
+  label { margin-right: 1rem; }
+  textarea, button, input { font: inherit; }
+  textarea { width: 100%; box-sizing: border-box; }
+  #out svg { width: 240px; height: 240px; display: block; margin-top: 1rem; }
+  #info { color: #666; }
+  .err { color: #b00020; }
+</style>
+
+<h1>QR Code — demo</h1>
+<p>Byte-mode QR encoder (ISO/IEC 18004, versions 1–40), fully in-browser.
+Type text below; the SVG re-renders as you type.</p>
+
+<textarea id="text" rows="3">https://subnsub.com</textarea>
+<p>
+  ECC level:
+  <label><input type="radio" name="level" value="L"> L</label>
+  <label><input type="radio" name="level" value="M" checked> M</label>
+  <label><input type="radio" name="level" value="Q"> Q</label>
+  <label><input type="radio" name="level" value="H"> H</label>
+</p>
+<p id="info">—</p>
+<div id="out"></div>
+
+<script type="module">
+  import { encode, toSvg } from './qr-encode.js';
+
+  const $ = (id) => document.getElementById(id);
+
+  function render() {
+    const text = $('text').value;
+    const level = document.querySelector('input[name="level"]:checked').value;
+    if (!text) { $('out').innerHTML = ''; $('info').textContent = '—'; return; }
+    try {
+      const qr = encode(text, level);
+      $('out').innerHTML = toSvg(qr);
+      $('info').className = '';
+      $('info').textContent =
+        `v${qr.version} · ${qr.size}×${qr.size} · ECC ${qr.level} · mask ${qr.mask}`;
+    } catch (e) {
+      $('out').innerHTML = '';
+      $('info').className = 'err';
+      $('info').textContent = e.message;
+    }
+  }
+
+  $('text').addEventListener('input', render);
+  document.querySelectorAll('input[name="level"]').forEach(r => r.addEventListener('change', render));
+  render();
+</script>
