@@ -1,0 +1,57 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>HTML Entities — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: 1rem 0 .25rem; }
+  label.inline { display: inline-block; margin: 0 1rem 0 0; }
+  input, button, textarea { font: inherit; }
+  textarea { width: 100%; box-sizing: border-box; }
+  pre { background: #f4f4f4; padding: .6rem; white-space: pre-wrap; word-break: break-all; }
+  #ref { columns: 2; margin: .25rem 0 0; padding-left: 1.2rem; }
+  #ref code { font-size: 13px; }
+</style>
+
+<h1>HTML Entities — demo</h1>
+<p>Encode markup-significant characters to entities, or decode any
+entity the browser knows back to text.</p>
+
+<p>
+  <label class="inline"><input type="radio" name="mode" value="decode" checked> Decode</label>
+  <label class="inline"><input type="radio" name="mode" value="encode"> Encode</label>
+  <label class="inline"><input type="checkbox" id="all"> encode all non-ASCII</label>
+</p>
+
+<label for="in">Input</label>
+<textarea id="in" rows="4" placeholder="&amp;lt;p&amp;gt;Hello &amp;amp; &amp;quot;world&amp;quot;&amp;lt;/p&amp;gt;"></textarea>
+
+<label>Output</label>
+<pre id="out">—</pre>
+
+<label>Reference</label>
+<ul id="ref"></ul>
+
+<script type="module">
+  import { encode, decode, ENTITIES } from './html-entities.js';
+
+  const $ = (id) => document.getElementById(id);
+  const mode = () => document.querySelector('[name=mode]:checked').value;
+
+  function refresh() {
+    const v = $('in').value;
+    if (!v) { $('out').textContent = '—'; return; }
+    $('out').textContent = mode() === 'encode' ? encode(v, $('all').checked) : decode(v);
+  }
+
+  $('in').addEventListener('input', refresh);
+  $('all').addEventListener('change', refresh);
+  document.querySelectorAll('[name=mode]').forEach(r => r.addEventListener('change', refresh));
+
+  for (const [ch, ent] of ENTITIES) {
+    const li = document.createElement('li');
+    const code = document.createElement('code');
+    code.textContent = ent;
+    li.append(`${ch} — `, code);
+    $('ref').appendChild(li);
+  }
+</script>
