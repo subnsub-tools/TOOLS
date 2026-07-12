@@ -1,0 +1,59 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Unix Timestamp — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: 1rem 0 .25rem; }
+  input, button { font: inherit; }
+  input { width: 100%; box-sizing: border-box; }
+  pre { background: #f4f4f4; padding: .6rem; white-space: pre-wrap; }
+  #now { font-family: ui-monospace, monospace; }
+</style>
+
+<h1>Unix Timestamp — demo</h1>
+<p>Epoch seconds ↔ dates. Current timestamp: <b id="now"></b></p>
+
+<label for="ts">Timestamp → date</label>
+<input type="text" id="ts" placeholder="e.g. 1714363200" autocomplete="off">
+<pre id="ts-out">—</pre>
+
+<label for="date">Date → timestamp (read in your local zone)</label>
+<input type="datetime-local" id="date">
+<pre id="date-out">—</pre>
+
+<script type="module">
+  import { timestampToDate, dateToTimestamp, describeTimestamp } from './unix-time.js';
+
+  const $ = (id) => document.getElementById(id);
+
+  const strip = (ts) => {
+    const d = describeTimestamp(ts);
+    return d ? `\nUTC       ${d.utc}\nLocal     ${d.local}\nRelative  ${d.rel}` : '';
+  };
+
+  $('ts').addEventListener('input', () => {
+    const v = $('ts').value;
+    let text;
+    try {
+      const r = timestampToDate(v);
+      text = r === null
+        ? (v.trim() ? 'Invalid timestamp' : '—')
+        : r + strip(Number(v.trim()));
+    } catch (e) {
+      text = e.message; /* beyond the ECMAScript Date range */
+    }
+    $('ts-out').textContent = text;
+  });
+
+  $('date').addEventListener('input', () => {
+    const v = $('date').value;
+    const ts = dateToTimestamp(v);
+    $('date-out').textContent = ts === null
+      ? (v ? 'Invalid date' : '—')
+      : ts + strip(ts);
+  });
+
+  const tick = () => { $('now').textContent = Math.floor(Date.now() / 1000); };
+  setInterval(tick, 1000);
+  tick();
+</script>
