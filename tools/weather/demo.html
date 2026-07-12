@@ -1,0 +1,161 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Weather Core — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 46rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: 1rem 0 .25rem; }
+  input, button { font: inherit; }
+  pre { background: rgba(127,127,127,.12); padding: .75rem; overflow-x: auto; white-space: pre-wrap; }
+  h2 { font-size: 1.05rem; margin-top: 2rem; }
+</style>
+
+<h1>Weather Core — demo</h1>
+<p>Two halves, both running on hand-written <em>sample</em> data: the CJK
+geocoding decision trace (which languages/variants would be queried, how the
+pools merge and rank, whether the Nominatim rescue fires), and the canonical
+payload pipeline (Open-Meteo sample → normalise → display shaping).</p>
+
+<h2>1 · Geocoding decisions</h2>
+<label>City query <input id="q" value="东京" size="24"></label>
+<label>UI language <input id="lang" value="en" size="8"></label>
+<button id="plan">Plan lookup</button>
+<pre id="geo-out">…</pre>
+
+<h2>2 · Payload shaping</h2>
+<label><input type="checkbox" id="fahr"> show °F</label>
+<button id="shape">Normalise sample forecast</button>
+<pre id="wx-out">…</pre>
+
+<script type="module">
+  import {
+    geoLang, hasCJK, hanVariants, jaFallbackVariants,
+    mergeGeoPools, rankGeoPool, needsNominatimRescue,
+    parseNominatim, mergeNominatimLead, cjkQueryPlan, geoSuggestions,
+    normalizeOpenMeteo, tempStr, tempNum, dayName, upcomingHours, dailyBars,
+  } from './weather-core.js';
+
+  const $ = (id) => document.getElementById(id);
+
+  /* Toy converter tables, DEMO ONLY — a handful of common characters. The
+     site injects full single-character tables generated from the OpenCC
+     dictionaries (Apache-2.0). */
+  const S2T = { '东': '東', '门': '門', '头': '頭', '云': '雲', '马': '馬', '龙': '龍', '湾': '灣', '广': '廣', '岛': '島', '汉': '漢', '济': '濟', '南': '南' };
+  const T2S = Object.fromEntries(Object.entries(S2T).map(([s, t]) => [t, s]));
+  const mapWith = (tbl) => (s) => [...s].map(c => tbl[c] || c).join('');
+  const convert = { s2t: mapWith(S2T), t2s: mapWith(T2S) };
+
+  /* Sample geocoder pools keyed by "<variant>|<language>" — the shapes of
+     real responses, contents made up. Everything else resolves to null
+     (a call that found nothing). */
+  const SAMPLE_GEO = {
+    '东京|zh': { results: [
+      { id: 11, name: '东京村', latitude: 30.10, longitude: 120.20, population: 800, country: 'Sampleland', admin1: 'Sample Province' },
+    ] },
+    '東京|zh': { results: [
+      { id: 12, name: '東京', latitude: 35.6895, longitude: 139.6917, population: 8336599, feature_code: 'PPLC', country: 'Japan', admin1: 'Tokyo' },
+      { id: 11, name: '东京村', latitude: 30.10, longitude: 120.20, population: 800, country: 'Sampleland', admin1: 'Sample Province' },
+    ] },
+    '横浜|ja': { results: [
+      { id: 13, name: '横浜市', latitude: 35.4437, longitude: 139.6380, population: 3777491, feature_code: 'PPLA', country: 'Japan', admin1: 'Kanagawa' },
+    ] },
+    'Paris|en': { results: [
+      { id: 14, name: 'Paris', latitude: 48.8566, longitude: 2.3522, population: 2138551, feature_code: 'PPLC', country: 'France', admin1: 'Île-de-France' },
+    ] },
+  };
+  /* Sample Nominatim response for queries the geocoder pool missed. */
+  const SAMPLE_NOM = [
+    { category: 'place', place_id: 9001, lat: '40.7128', lon: '-74.0060',
+      name: '纽约;紐約', display_name: 'Sample City, Sample State, Sampleland' },
+    { category: 'highway', place_id: 9002, lat: '40.71', lon: '-74.00', name: 'A road (skipped)' },
+  ];
+
+  $('plan').onclick = () => {
+    const q = $('q').value.trim();
+    const ui = $('lang').value.trim();
+    if (!q) return;
+    const lines = [];
+    const lang = geoLang(q, ui);
+    lines.push(`hasCJK: ${hasCJK(q)}   geocoding language: ${lang}`);
+
+    const round1 = hanVariants(q, lang, convert);
+    lines.push(`round 1 (${lang}): ${round1.join(' , ')}`);
+    let payloads = round1.map(v => SAMPLE_GEO[v + '|' + lang] || { results: [] });
+    let pool = mergeGeoPools(payloads);
+
+    if (!pool.results.length && lang === 'zh') {
+      const round2 = jaFallbackVariants(q, convert);
+      lines.push(`round 2 (ja, raw first): ${round2.join(' , ')}`);
+      payloads = payloads.concat(round2.map(v => SAMPLE_GEO[v + '|ja'] || { results: [] }));
+      pool = mergeGeoPools(payloads);
+    }
+
+    rankGeoPool(pool.results);
+    lines.push(`merged pool (${pool.results.length}): ` +
+      pool.results.map(r => `${r.name}(pop ${r.population || 0})`).join(' , '));
+
+    if (needsNominatimRescue(q, pool.results)) {
+      const nom = parseNominatim(SAMPLE_NOM, q);
+      pool.results = mergeNominatimLead(nom, pool.results);
+      lines.push(`nominatim rescue fired → ${nom.length} lead result(s)`);
+    } else {
+      lines.push('nominatim rescue: not needed');
+    }
+
+    lines.push('suggestions: ' + JSON.stringify(geoSuggestions(pool.results)));
+    if (hasCJK(q)) {
+      const plan = cjkQueryPlan(q, pool);
+      lines.push('weather-lookup plan: ' + JSON.stringify(plan));
+    } else {
+      lines.push('weather-lookup plan: raw query (non-CJK goes straight to the providers)');
+    }
+    $('geo-out').textContent = lines.join('\n');
+  };
+
+  /* Sample Open-Meteo forecast response — 3 days, a few hours per day. */
+  const hoursOf = (date, temps) => temps.map((t, i) => [date + 'T' + String(9 + i).padStart(2, '0') + ':00', t]);
+  const H = [
+    ...hoursOf(dayISO(0), [24.1, 26.0, 27.6, 28.2]),
+    ...hoursOf(dayISO(1), [22.8, 24.4, 25.1, 24.0]),
+    ...hoursOf(dayISO(2), [23.5, 25.9, 27.0, 26.2]),
+  ];
+  function dayISO(off){ const d = new Date(); d.setDate(d.getDate() + off); return d.toISOString().slice(0, 10); }
+  const SAMPLE_OM = {
+    latitude: 35.69, longitude: 139.69, timezone: 'Asia/Tokyo',
+    current: { temperature_2m: 27.4, apparent_temperature: 30.1, relative_humidity_2m: 68,
+               weather_code: 2, wind_speed_10m: 12.5, wind_direction_10m: 135, is_day: 1,
+               surface_pressure: 1009.6, uv_index: 5.4 },
+    hourly: {
+      time: H.map(h => h[0]),
+      temperature_2m: H.map(h => h[1]),
+      weather_code: H.map((_, i) => [1, 2, 61, 3][i % 4]),
+      precipitation_probability: H.map((_, i) => (i * 7) % 90),
+      is_day: H.map(() => 1),
+    },
+    daily: {
+      time: [dayISO(0), dayISO(1), dayISO(2)],
+      temperature_2m_max: [28.2, 25.1, 27.0],
+      temperature_2m_min: [21.9, 20.4, 21.2],
+      weather_code: [2, 61, 95],
+      precipitation_probability_max: [20, 80, 60],
+    },
+  };
+
+  $('shape').onclick = () => {
+    const f = $('fahr').checked;
+    const body = normalizeOpenMeteo(SAMPLE_OM, '東京', 'Japan');
+    const c = body.current;
+    const lines = [];
+    lines.push(`${body.location.name}, ${body.location.country} — ${tempStr(c.temp_c, c.temp_f, f)}  ${c.condition}  [icon ${c.icon}]`);
+    lines.push(`feels ${tempNum(c.feelslike_c, c.feelslike_f, f)} · humidity ${c.humidity}% · wind ${f ? c.wind_mph + ' mph' : c.wind_kph + ' km/h'} ${c.wind_dir} · ${c.pressure_mb} hPa`);
+    lines.push('', '— next hours —');
+    for (const h of upcomingHours(body.forecast).slice(0, 8))
+      lines.push(`${h.isNow ? 'Now  ' : h.time}  ${tempNum(h.temp_c, h.temp_f, f)}  [${h.icon}]${h.rain > 0 ? '  ' + h.rain + '%' : ''}`);
+    lines.push('', '— 3-day bars (shared range) —');
+    for (const b of dailyBars(body.forecast, f))
+      lines.push(`${dayName(b.date).padEnd(9)} ${tempNum(b.lo, b.lo, f)}–${tempNum(b.hi, b.hi, f)}  left ${b.left}% width ${b.width}%  [${b.icon}]${b.rain_chance > 0 ? '  ' + b.rain_chance + '%' : ''}`);
+    $('wx-out').textContent = lines.join('\n');
+  };
+
+  $('plan').click();
+  $('shape').click();
+</script>
