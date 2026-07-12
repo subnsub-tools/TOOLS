@@ -1,0 +1,79 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>JWT Decoder &amp; Verifier — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: .75rem 0 .25rem; }
+  textarea { width: 100%; font: 13px/1.4 ui-monospace, monospace; }
+  pre { background: rgba(127,127,127,.12); padding: .5rem; overflow-x: auto; font-size: 13px; }
+  .err { color: #b00020; }
+  #vstate { font-weight: 600; }
+</style>
+
+<h1>JWT Decoder &amp; Verifier — demo</h1>
+<p>Paste a token to decode it; paste the matching key to verify the
+signature locally (HS/RS/PS/ES via WebCrypto). Verification needs HTTPS or
+localhost.</p>
+
+<label>Token</label>
+<textarea id="token" rows="4" spellcheck="false" placeholder="eyJ…header.eyJ…payload.signature"></textarea>
+<label id="keylbl">Key</label>
+<textarea id="key" rows="3" spellcheck="false" placeholder="HMAC secret (HS*) or -----BEGIN PUBLIC KEY----- PEM (RS*/PS*/ES*)"></textarea>
+
+<p><span id="vstate">—</span> <span id="vdetail"></span></p>
+<p id="err" class="err"></p>
+<h2>Header</h2>
+<pre id="header">—</pre>
+<h2>Payload</h2>
+<pre id="payload">—</pre>
+
+<script type="module">
+  import { decodeJwt, jwtAlgInfo, jwtVerify } from './jwt-verify.js';
+
+  const $ = (id) => document.getElementById(id);
+  let verifySeq = 0;   /* monotonic counter to drop stale verify results */
+
+  function keyHint(alg){
+    const info = jwtAlgInfo(alg);
+    if (!info) return 'Key (header has no alg)';
+    if (info.kind === 'none') return 'Key (alg = none — no key needed)';
+    if (info.kind === 'unsupported') return `Key (${info.alg} — not supported)`;
+    if (info.kind === 'hs') return `Key — ${info.alg} shared secret (raw text)`;
+    if (info.kind === 'es') return `Key — ${info.alg} EC public key (PEM SPKI)`;
+    return `Key — ${info.alg} RSA public key (PEM SPKI)`;
+  }
+
+  async function run(){
+    const v = $('token').value.trim();
+    $('err').textContent = '';
+    if (!v) {
+      $('header').textContent = $('payload').textContent = '—';
+      $('vstate').textContent = '—'; $('vdetail').textContent = '';
+      $('keylbl').textContent = 'Key';
+      verifySeq++;
+      return;
+    }
+    let d;
+    try {
+      d = decodeJwt(v);
+    } catch (e) {
+      $('header').textContent = $('payload').textContent = '—';
+      $('vstate').textContent = '—'; $('vdetail').textContent = '';
+      $('err').textContent = 'Could not decode token — ' + e.message;
+      verifySeq++;
+      return;
+    }
+    $('header').textContent = JSON.stringify(d.header, null, 2);
+    $('payload').textContent = JSON.stringify(d.payload, null, 2);
+    $('keylbl').textContent = keyHint(d.header.alg);
+    const seq = ++verifySeq;
+    const r = await jwtVerify(v, d.header, $('key').value);
+    if (seq !== verifySeq) return;   /* a newer verify started — drop result */
+    $('vstate').textContent = r.label;
+    $('vstate').className = r.ok === true ? '' : r.ok === false ? 'err' : '';
+    $('vdetail').textContent = r.detail || '';
+  }
+
+  $('token').addEventListener('input', run);
+  $('key').addEventListener('input', run);
+</script>
