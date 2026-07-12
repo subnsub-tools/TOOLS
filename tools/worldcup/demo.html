@@ -1,0 +1,105 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>World Cup Schedule — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 46rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: 1rem 0 .25rem; }
+  input, button { font: inherit; }
+  pre { background: rgba(127,127,127,.12); padding: .75rem; overflow-x: auto; white-space: pre-wrap; }
+</style>
+
+<h1>World Cup Schedule — demo</h1>
+<p>Runs the module on hand-written <em>sample</em> upstream payloads (fake
+scores, sample venues): normalises both sources into the canonical match
+shape, parses standings, buckets kickoffs into a chosen time zone and picks
+the featured match.</p>
+
+<label>Time zone (IANA, empty = browser local)
+  <input id="tz" placeholder="Asia/Tokyo" size="24"></label>
+<button id="run">Run</button>
+<pre id="out">…</pre>
+
+<script type="module">
+  import {
+    normalizeEspnScoreboard, parseEspnStandings, normalizeTsdbSeason,
+    utcTodayWindow, trimToWindow, sortSchedule, groupMatchesByDay,
+    pickFeatured, BADGE, hasScore, isLive, advances, compLabel,
+    fmtDate, fmtTime,
+  } from './worldcup-schedule.js';
+
+  /* Sample data only — shapes mirror the real feeds, contents are made up. */
+  const iso = (h) => new Date(Date.now() + h * 3600000).toISOString();
+
+  const SAMPLE_ESPN_STANDINGS = { children: [{
+    name: 'Group A',
+    standings: { entries: [
+      { team: { id: '203', displayName: 'Mexico', abbreviation: 'MEX' },
+        stats: [{ name: 'rank', value: 1 }, { name: 'gamesPlayed', value: 2 }, { name: 'wins', value: 2 },
+                { name: 'ties', value: 0 }, { name: 'losses', value: 0 }, { name: 'pointsFor', value: 5 },
+                { name: 'pointsAgainst', value: 1 }, { name: 'pointDifferential', value: 4 }, { name: 'points', value: 6 }] },
+      { team: { id: '660', displayName: 'United States', abbreviation: 'USA' },
+        stats: [{ name: 'rank', value: 3 }, { name: 'gamesPlayed', value: 2 }, { name: 'wins', value: 0 },
+                { name: 'ties', value: 1 }, { name: 'losses', value: 1 }, { name: 'pointsFor', value: 1 },
+                { name: 'pointsAgainst', value: 3 }, { name: 'pointDifferential', value: -2 }, { name: 'points', value: 1 }] },
+    ] },
+  }] };
+
+  const SAMPLE_ESPN_SCOREBOARD = { events: [
+    { id: 'demo-1', date: iso(-2), season: { slug: 'group-stage' },
+      status: { type: { state: 'in', name: 'STATUS_IN_PROGRESS' } },
+      competitions: [{ venue: { fullName: 'Sample Stadium', address: { city: 'Sampleville' } },
+        competitors: [
+          { homeAway: 'home', score: '2', team: { id: '203', displayName: 'Mexico', abbreviation: 'MEX' } },
+          { homeAway: 'away', score: '0', team: { id: '660', displayName: 'United States', abbreviation: 'USA' } },
+        ] }] },
+    { id: 'demo-2', date: iso(20), season: { slug: 'round-of-16' },
+      status: { type: { state: 'pre', name: 'STATUS_SCHEDULED' } },
+      competitions: [{ venue: { fullName: 'Demo Park', address: { city: 'Exampleton' } },
+        competitors: [
+          { homeAway: 'home', score: '0', team: { id: '205', displayName: 'Brazil', abbreviation: 'BRA' } },
+          { homeAway: 'away', score: '0', team: { id: '627', displayName: 'Japan', abbreviation: 'JPN' } },
+        ] }] },
+  ] };
+
+  const SAMPLE_TSDB_SEASON = { events: [
+    { idEvent: 'demo-3', strTimestamp: iso(30).slice(0, 19),  // no zone suffix on purpose
+      strStatus: 'NS', intRound: '4', strVenue: 'Fallback Field',
+      strHomeTeam: 'Czech Republic', intHomeScore: null,
+      strAwayTeam: 'Turkey', intAwayScore: null },
+  ] };
+
+  const $ = (id) => document.getElementById(id);
+
+  $('run').onclick = () => {
+    const tz = $('tz').value.trim() || undefined;
+    const opts = { timeZone: tz };
+    const lines = [];
+
+    const { standings, groupOf } = parseEspnStandings(SAMPLE_ESPN_STANDINGS);
+    lines.push('— standings —');
+    standings.forEach(g => g.table.forEach(r =>
+      lines.push(`${g.group}  #${r.pos} ${r.team} (${r.code})  P${r.played} GD${r.gd} Pts${r.pts}${advances(r) ? '  → advances' : ''}`)));
+
+    const espn = normalizeEspnScoreboard(SAMPLE_ESPN_SCOREBOARD, groupOf) || [];
+    const tsdb = normalizeTsdbSeason(SAMPLE_TSDB_SEASON) || [];
+    const win = utcTodayWindow();
+    const matches = sortSchedule(espn.concat(tsdb));
+    lines.push('', `— canonical matches (UTC window ${win.fetchRange}, in-window: ${trimToWindow(matches, win.days).length}/${matches.length}) —`);
+    for (const m of matches) {
+      const score = hasScore(m.status) ? `${m.homeTeam.score} : ${m.awayTeam.score}` : '–';
+      lines.push(`${m.homeTeam.code || m.homeTeam.name} ${score} ${m.awayTeam.code || m.awayTeam.name}` +
+        `  [${BADGE[m.status] || fmtTime(m.utcDate, opts)}]  ${compLabel(m)}  @ ${m.venue}`);
+    }
+
+    lines.push('', `— bucketed by day (${tz || 'browser zone'}) —`);
+    for (const g of groupMatchesByDay(matches, tz))
+      lines.push(`${g.date}  (${fmtDate(g.matches[0].utcDate, opts)})  ×${g.matches.length}`);
+
+    const hero = pickFeatured(matches, matches, tz);
+    lines.push('', `— featured — ${hero.homeTeam.name} vs ${hero.awayTeam.name}` +
+      ` (${isLive(hero) ? 'live' : 'kickoff ' + fmtTime(hero.utcDate, opts)})`);
+
+    $('out').textContent = lines.join('\n');
+  };
+  $('run').click();
+</script>
