@@ -1,0 +1,117 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Timer / Stopwatch / Clock — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
+  section { margin: 2rem 0; }
+  input, button { font: inherit; }
+  .big { font-size: 2rem; font-variant-numeric: tabular-nums; }
+  #cd-state, #ck-zone { color: #666; }
+  ol { padding-left: 1.5rem; }
+  li { font-variant-numeric: tabular-nums; }
+</style>
+
+<h1>Timer / Stopwatch / Clock — demo</h1>
+<p>All three engines are driven by one requestAnimationFrame loop — including
+through pauses, as the module requires. Background the tab mid-run to see the
+wall-clock catch-up.</p>
+
+<section>
+  <h2>Countdown</h2>
+  <label>Minutes <input type="number" id="cd-min" value="1" min="1" max="99" step="1"></label>
+  <button id="cd-start">Start</button>
+  <button id="cd-pause">Pause</button>
+  <button id="cd-cancel">Cancel</button>
+  <p class="big" id="cd-time">–:––</p>
+  <p id="cd-state">idle</p>
+</section>
+
+<section>
+  <h2>Stopwatch</h2>
+  <button id="sw-main">Start</button>
+  <button id="sw-lap">Lap</button>
+  <button id="sw-reset">Reset</button>
+  <p class="big" id="sw-time">0:00.0</p>
+  <ol id="sw-laps" reversed></ol>
+</section>
+
+<section>
+  <h2>Clock</h2>
+  <label><input type="checkbox" id="ck-h12"> 12-hour</label>
+  <label>Time zone <input type="text" id="ck-tz" placeholder="system" size="18"></label>
+  <button id="ck-apply">Apply</button>
+  <p class="big"><span id="ck-time">–</span> <small id="ck-ampm"></small></p>
+  <p id="ck-date">–</p>
+  <p id="ck-zone"></p>
+</section>
+
+<script type="module">
+  import {
+    createCountdown, createStopwatch, createClock,
+    fmtMS, fmtSW, localeHour12, systemZone,
+  } from './timer-engine.js';
+
+  const $ = (id) => document.getElementById(id);
+
+  /* countdown */
+  const cd = createCountdown({ onFinish: () => { $('cd-state').textContent = 'finished'; } });
+  $('cd-start').onclick = () => {
+    const min = Math.max(1, Math.min(99, Math.round(+$('cd-min').value) || 1));
+    cd.start(min * 60);
+    $('cd-state').textContent = 'running';
+  };
+  $('cd-pause').onclick = () => {
+    cd.togglePause();
+    if (cd.running() && !cd.finishing()) $('cd-state').textContent = cd.paused() ? 'paused' : 'running';
+  };
+  $('cd-cancel').onclick = () => {
+    cd.cancel();
+    if (!cd.running()) $('cd-state').textContent = 'idle';
+  };
+
+  /* stopwatch */
+  const sw = createStopwatch();
+  $('sw-main').onclick = () => { sw.toggle(); };
+  $('sw-lap').onclick = () => {
+    const entry = sw.lap();
+    if (!entry) return;
+    const li = document.createElement('li');
+    li.value = entry.n;
+    li.textContent = '+' + fmtSW(entry.split) + '  (' + fmtSW(entry.total) + ')';
+    $('sw-laps').prepend(li);
+  };
+  $('sw-reset').onclick = () => {
+    sw.reset();
+    if (!sw.running()) $('sw-laps').innerHTML = '';
+  };
+
+  /* clock */
+  let clock;
+  function buildClock() {
+    clock = createClock({ hour12: $('ck-h12').checked, timeZone: $('ck-tz').value.trim() || null });
+    $('ck-zone').textContent = 'zone: ' + (clock.timeZone || 'system (' + systemZone() + ')');
+  }
+  $('ck-h12').checked = localeHour12();
+  $('ck-apply').onclick = buildClock;
+  buildClock();
+
+  /* one frame loop drives everything — engines require ticking through pauses */
+  function frame(now) {
+    cd.tick(now);
+    sw.tick(now);
+
+    $('cd-time').textContent = cd.running() ? fmtMS(cd.displaySeconds()) : '–:––';
+    $('cd-pause').textContent = cd.paused() ? 'Resume' : 'Pause';
+
+    $('sw-time').textContent = fmtSW(sw.elapsed());
+    $('sw-main').textContent = sw.running() ? 'Stop' : 'Start';
+
+    const r = clock.read();
+    $('ck-time').textContent = r.time;
+    $('ck-ampm').textContent = r.dayPeriod;
+    $('ck-date').textContent = r.date;
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+</script>
