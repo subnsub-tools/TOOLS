@@ -1,0 +1,50 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Color — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: 1rem 0 .25rem; }
+  input { font: inherit; width: 100%; }
+  #swatch { height: 4rem; border: 1px solid #ccc; margin: 1rem 0; }
+  dt { margin-top: .75rem; font-weight: 600; }
+  dd { margin: 0; font-family: ui-monospace, monospace; }
+  .err { color: #b00020; }
+</style>
+
+<h1>Color — demo</h1>
+<p>Parse a color (<code>#rgb</code>, <code>#rrggbb</code>, <code>rgb()</code>,
+<code>hsl()</code>) and read it back in every format.</p>
+
+<label>Color <input id="in" value="#7f5af0" spellcheck="false"></label>
+<div id="swatch"></div>
+<p id="err" class="err"></p>
+
+<dl>
+  <dt>HEX</dt><dd id="hex">—</dd>
+  <dt>RGB</dt><dd id="rgb">—</dd>
+  <dt>HSL</dt><dd id="hsl">—</dd>
+  <dt>OKLCH</dt><dd id="oklch">—</dd>
+</dl>
+
+<script type="module">
+  import { convertColor } from './color-convert.js';
+
+  const $ = (id) => document.getElementById(id);
+  const KEYS = ['hex', 'rgb', 'hsl', 'oklch'];
+
+  function run() {
+    const r = convertColor($('in').value);
+    if (!r) {
+      $('err').textContent = $('in').value.trim() ? 'Not a recognized color format' : '';
+      $('swatch').style.background = 'transparent';
+      KEYS.forEach((k) => { $(k).textContent = '—'; });
+      return;
+    }
+    $('err').textContent = '';
+    $('swatch').style.background = r.formats.hex;
+    KEYS.forEach((k) => { $(k).textContent = r.formats[k]; });
+  }
+
+  $('in').oninput = run;
+  run();
+</script>
