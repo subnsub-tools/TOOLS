@@ -31,6 +31,7 @@ the melody as a standard MIDI file.</p>
 <div id="strip"></div>
 <div class="row">
   <button id="play">Play</button>
+  <button id="rec">● Record</button>
   <label><input type="checkbox" id="loop"> Loop</label>
   <label>BPM <input type="range" id="bpm" min="40" max="240" value="100"> <span id="bpmv">100</span></label>
 </div>
@@ -43,7 +44,7 @@ the melody as a standard MIDI file.</p>
 <script type="module">
   import {
     noteName, isBlack, sanitizeSequence,
-    audition, createPlayer,
+    audition, createPlayer, quantizeTaps,
     buildMidi, midiFileName, parseMidi, midiToMelody,
   } from './melody-core.js';
 
@@ -51,6 +52,7 @@ the melody as a standard MIDI file.</p>
   const status = (msg, err) => { $('status').textContent = msg || ''; $('status').className = err ? 'err' : ''; };
 
   let melody = [], armed = null;
+  let recOn = false, recT0 = null, recTaps = [];
 
   /* two octaves around middle C — the site renders the full 88 keys */
   for (let m = 60; m <= 83; m++) {
@@ -59,6 +61,11 @@ the melody as a standard MIDI file.</p>
     if (isBlack(m)) b.className = 'bk';
     b.onclick = () => {
       if (player.playing) player.stop();
+      if (recOn) {                       // recording: stamp the press (clock starts on the first)
+        const t = performance.now() / 1000;
+        if (recT0 == null) recT0 = t;
+        recTaps.push({ t: t - recT0, m });
+      }
       armed = m;
       $('armed').textContent = noteName(m);
       $('add').disabled = false;
@@ -101,6 +108,25 @@ the melody as a standard MIDI file.</p>
   $('clear').onclick = () => edit(() => { melody = []; });
   $('play').onclick  = () => player.play(melody);
   $('bpm').oninput   = () => { $('bpmv').textContent = $('bpm').value; };
+
+  $('rec').onclick = () => {
+    if (!recOn) {
+      if (player.playing) player.stop();
+      recOn = true; recT0 = null; recTaps = [];
+      $('rec').textContent = '■ Stop (tap keys…)';
+      status('Recording — play the keys in your rhythm, then press Stop.');
+      return;
+    }
+    recOn = false;
+    $('rec').textContent = '● Record';
+    if (!recTaps.length) { status(''); return; }
+    const take = quantizeTaps(recTaps, Number($('bpm').value) || 100);
+    melody = take.seq;
+    $('bpm').value = take.bpm;
+    $('bpmv').textContent = take.bpm;
+    render();
+    status(`Recorded ${melody.length} slots at ${take.bpm} BPM.`);
+  };
 
   $('save').onclick = () => {
     const url = URL.createObjectURL(new Blob([buildMidi(melody, $('bpm').value)], { type: 'audio/midi' }));

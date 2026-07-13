@@ -14,7 +14,8 @@ from-scratch SMF writer/parser.
 - [`melody-core.js`](melody-core.js) — the module: pitch helpers,
   `sanitizeSequence()`, the synth (`audition()`, `voice()`,
   `holdVoice()`, `stopAllVoices()`, `resumeAudio()`), `createPlayer()`,
-  `buildMidi()` / `midiFileName()`, `parseMidi()` / `midiToMelody()`
+  `quantizeTaps()`, `buildMidi()` / `midiFileName()`,
+  `parseMidi()` / `midiToMelody()`
 - [`demo.html`](demo.html) — minimal standalone page exercising the module
 
 ## Sequence format
@@ -56,6 +57,10 @@ const name  = midiFileName(seq);              // melody-C4-Ds4-E4-<stamp>.mid
 
 // MIDI in: flattens any format-0/1 file onto the slot model
 const { seq: loaded, bpm } = midiToMelody(parseMidi(await file.arrayBuffer()));
+
+// Rhythm capture: stamp key presses, then quantize the take
+const taps = [];                 // push { t: seconds since first tap, m } per press
+const take = quantizeTaps(taps, Number(slider.value));   // → { seq, bpm }
 ```
 
 Call `resumeAudio()` (or just `audition()` / `player.play()`) from a user
@@ -78,6 +83,14 @@ gesture — autoplay policies keep the AudioContext suspended until then.
   `Error('midi')`; other malformed input is parsed defensively (best-effort
   over the chunks it can read) rather than trusted. A file written by
   `buildMidi()` round-trips exactly.
+- **Rhythm capture** (`quantizeTaps()`) flattens live tapping the same
+  way: taps within 60 ms collapse to their top note, the beat unit is the
+  mean of the fastest class of inter-tap gaps (halved once when the finer
+  grid clearly fits better — dotted figures), gaps become rests (capped at
+  32 slots per pause), and one-slot-per-unit maps onto the 40–240 BPM
+  range. A single-tap take keeps the caller's fallback BPM; a take past
+  the 1000-slot cap is truncated, not rejected — refusing would throw
+  away the user's own performance.
 
 ## Site integration (not in this repo)
 

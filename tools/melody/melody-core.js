@@ -29,6 +29,13 @@
    that fits every inter-note gap, rests fill the gaps, and the file's
    tempo maps onto the BPM. A file saved by this tool round-trips exactly.
 
+   Rhythm capture (the site's Record button): each played key is stamped
+   ({ t: seconds, m: midi }) and quantizeTaps() flattens the stamps onto
+   the same slot model — chords collapse to their top note, the beat unit
+   is estimated from the fastest class of inter-tap gaps, gaps become
+   rests, and the unit maps onto the BPM — so a recorded take plays,
+   saves and exports through the same pipeline unchanged.
+
    The synth half needs the Web Audio API (any modern browser); the
    sequence / MIDI half is plain computation. */
 
@@ -235,6 +242,51 @@ export function createPlayer(opts) {
     });
   }
   return { play, stop, get playing() { return playing || playStarting; } };
+}
+
+/* ── rhythm capture ──
+   The Record flow: arm, then just play — the first key press starts the
+   clock and every press is stamped { t: seconds since the first tap,
+   m: MIDI note }. quantizeTaps() turns the stamps into a sequence. */
+export const REC_CHORD = 0.06;             // taps this close (s) = one chord — skyline, like import
+export const REC_GAP_CAP = 32;             // one pause can widen to at most this many slots
+export function quantizeTaps(taps, fallbackBpm) {
+  const ons = [];
+  taps.forEach(tp => {
+    const last = ons[ons.length - 1];
+    if (last && tp.t - last.t <= REC_CHORD) { if (tp.m > last.m) last.m = tp.m; }
+    else ons.push({ t: tp.t, m: tp.m });
+  });
+  if (ons.length === 1) return { seq: [ons[0].m], bpm: fallbackBpm };
+  const gaps = [];
+  for (let i = 1; i < ons.length; i++) gaps.push(ons[i].t - ons[i - 1].t);
+  /* beat unit = mean of the fastest class of gaps (within 1.45× of the
+     shortest — one class can't straddle a 2:1 rhythm ratio, so this
+     absorbs human jitter without swallowing the next duration up).
+     Halve it once when the finer grid fits the whole take clearly
+     better: a dotted figure like 1.5×-1×-2× only lands when the unit
+     is the half, and "clearly" (< half the error) keeps plain even
+     tapping, whose error the halved grid merely ties, on the coarse
+     grid. */
+  const minG = Math.min.apply(null, gaps);
+  const fast = gaps.filter(g => g <= minG * 1.45);
+  let unit = fast.reduce((a, b) => a + b, 0) / fast.length;
+  const err = u => gaps.reduce((s, g) => s + Math.abs(g - Math.max(1, Math.round(g / u)) * u), 0);
+  if (60 / (unit / 2) <= 240 && err(unit / 2) < err(unit) * 0.5) unit /= 2;
+  /* one slot per unit; clamping to the 40–240 BPM range re-times the
+     unit, so tapping faster than 240 BPM flattens to adjacent slots and
+     slower than 40 stretches into rests — both honest within the model */
+  const bpm = Math.max(40, Math.min(240, Math.round(60 / unit)));
+  unit = 60 / bpm;
+  const seq = [ons[0].m];
+  for (let i = 1; i < ons.length && seq.length < MAX_IMPORT; i++) {
+    /* unlike import's hard reject, a too-long take is truncated at the
+       slot cap — refusing would throw away the user's own performance */
+    const n = Math.max(1, Math.min(REC_GAP_CAP, Math.round(gaps[i - 1] / unit)));
+    for (let r = 1; r < n && seq.length < MAX_IMPORT - 1; r++) seq.push('R');
+    seq.push(ons[i].m);
+  }
+  return { seq, bpm };
 }
 
 /* ── MIDI export (Standard MIDI File, format 0) ──
