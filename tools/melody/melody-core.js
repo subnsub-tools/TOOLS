@@ -58,7 +58,7 @@ export function inScale(m, root) { if (root < 0) return true; return MAJOR.inclu
    MIDI numbers within the 88-key range, drop everything else. */
 export function sanitizeSequence(raw) {
   if (!Array.isArray(raw)) return [];
-  return raw.filter(x => x === 'R' || (typeof x === 'number' && x >= LO_ALL && x <= HI_ALL));
+  return raw.filter(x => x === 'R' || (typeof x === 'number' && Number.isInteger(x) && x >= LO_ALL && x <= HI_ALL));
 }
 
 /* ── audio ── */
@@ -365,14 +365,17 @@ export function parseMidi(buf) {
   if (tag() !== 'MThd') die();
   const hlen = rd32(); if (hlen < 6) die();
   const hEnd = p + hlen;
+  if (hEnd > u8.length) die();             // header claims more bytes than the file holds
   const fmt = rd16();
-  if (fmt === 2) die();                    // format 2 = independent sequences, merging would lie
+  if (fmt !== 0 && fmt !== 1) die();       // only format 0 (single track) and 1 (synchronous); 2 would lie on merge, 3+ isn't SMF
   const ntrk = rd16(), div = rd16();
   if (div & 0x8000) die();                 // SMPTE timing — vanishingly rare, unsupported
+  if (ntrk < 1 || (fmt === 0 && ntrk !== 1)) die();  // format 0 is exactly one track by definition
   const ppq = div || 480;
   p = hEnd;
   const notes = []; let tempo = 0, eot = 0;
-  for (let seen = 0; seen < ntrk && p + 8 <= u8.length; ) {
+  let seen = 0;
+  for (; seen < ntrk && p + 8 <= u8.length; ) {
     const id = tag(), len = rd32();
     if (p + len > u8.length) die();        // truncated chunk — refuse, don't import a partial melody
     const end = p + len;
@@ -412,6 +415,7 @@ export function parseMidi(buf) {
     if (tick > eot) eot = tick;            // end-of-track tick — preserves trailing rests
     p = end;
   }
+  if (seen !== ntrk) die();               // declared tracks must all be present — a truncated file would drop notes silently
   if (!notes.length) die();
   return { ppq, tempo: tempo || 500000, notes, eot };
 }
