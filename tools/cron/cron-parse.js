@@ -27,8 +27,10 @@ const CRON_DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
 /* Expand one field into a sorted list of matching values within
    [min, max]. wrapAt enables wrap-around ranges (7 for day-of-week, so
-   "5-1" → Fri…Mon and a literal 7 folds onto Sunday). Malformed parts
-   contribute nothing rather than throwing. */
+   "5-1" → Fri…Mon, stepped in sequence order across the boundary, and a
+   literal 7 folds onto Sunday). Malformed parts contribute nothing
+   rather than throwing: range ends above the field maximum are clamped,
+   and day-of-week parts using values outside 0-7 are dropped. */
 export function cronExpand(field,min,max,wrapAt){
   const results=new Set();
   for(const part of field.split(',')){
@@ -40,11 +42,20 @@ export function cronExpand(field,min,max,wrapAt){
     const rangeM=range.match(/^(\d+)-(\d+)$/);
     if(rangeM){
       let lo=parseInt(rangeM[1]),hi=parseInt(rangeM[2]);
-      if(lo>hi&&wrapAt!=null){for(let i=lo;i<=wrapAt;i+=step)results.add(i%wrapAt);for(let i=min;i<=hi;i+=step)results.add(i);}
-      else for(let i=lo;i<=hi;i+=step)results.add(wrapAt!=null?i%wrapAt:i);
+      if(wrapAt!=null){
+        if(lo>wrapAt||hi>wrapAt) continue;
+        if(lo>hi) hi+=wrapAt;
+        for(let i=lo;i<=hi;i+=step)results.add(i%wrapAt);
+      }else{
+        if(hi>max) hi=max;
+        for(let i=lo;i<=hi;i+=step)results.add(i);
+      }
     }else{
       let v=parseInt(range);
-      if(wrapAt!=null&&v>=wrapAt) v=v%wrapAt;
+      if(wrapAt!=null){
+        if(v>wrapAt) continue;
+        if(v===wrapAt) v=0;
+      }
       results.add(v);
     }
   }
