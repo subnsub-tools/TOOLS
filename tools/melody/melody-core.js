@@ -270,25 +270,41 @@ export function quantizeTaps(taps, fallbackBpm) {
      grid. */
   const minG = Math.min.apply(null, gaps);
   const fast = gaps.filter(g => g <= minG * 1.45);
-  let unit = fast.reduce((a, b) => a + b, 0) / fast.length;
-  const err = u => gaps.reduce((s, g) => s + Math.abs(g - Math.max(1, Math.round(g / u)) * u), 0);
-  /* the fine grid is floored at the 240 BPM ceiling rather than skipped
-     past it — a 0.49s pulse still gets its 2:3 figures caught by the
-     0.25s grid instead of collapsing onto the coarse one */
-  const half = Math.max(unit / 2, 60 / 240);
-  if (half < unit && err(half) < err(unit) * 0.5) unit = half;
-  /* one slot per unit; clamping to the 40–240 BPM range re-times the
-     unit, so tapping faster than 240 BPM flattens to adjacent slots and
-     slower than 40 stretches into rests — both honest within the model */
-  const bpm = Math.max(40, Math.min(240, Math.round(60 / unit)));
-  unit = 60 / bpm;
+  const unit = fast.reduce((a, b) => a + b, 0) / fast.length;
+  /* Candidate tempi: the fast-class unit and its subdivisions (k ≤ 8
+     still catches a 3-in-4s figure), each pushed through the same BPM
+     rounding/clamp the generator uses. Scoring replays the generator's
+     exact arithmetic — including the per-gap slot cap, so a fine grid
+     can't win on paper while the cap mangles it in practice (a 16s
+     pause reads as 32 capped slots ≈ 16s at 120 BPM but 8s at 240) —
+     and a finer grid must clearly beat the standing one (half the
+     error), which keeps even tapping with human jitter on the coarse
+     grid. Slow takes lean on the subdivisions: a 2s pulse clamped to
+     40 BPM lands 25% off, while k=2 expresses it exactly as
+     note-rest-note at 60 BPM. */
+  const fit = b => { const u = 60 / b; return gaps.reduce((s, g) => s + Math.abs(g - Math.max(1, Math.min(REC_GAP_CAP, Math.round(g / u))) * u), 0); };
+  let bpm = Math.max(40, Math.min(240, Math.round(60 / unit)));
+  let best = fit(bpm);
+  for (let k = 2; k <= 8; k++) {
+    /* a grid that already fits to human precision (20ms per gap — timer
+       and finger jitter) can't be "clearly beaten": with one or two gaps
+       a subdivision can always hug them near-perfectly, so without this
+       floor rounding residue would pick the grid at random. Structural
+       misfits (dotted/2:3 figures) sit at 80ms+ per gap and still pass. */
+    if (best <= gaps.length * 0.02) break;
+    const c = Math.max(40, Math.min(240, Math.round(60 / (unit / k))));
+    if (c === bpm) continue;
+    const f = fit(c);
+    if (f < best * 0.5) { best = f; bpm = c; }
+  }
+  const grid = 60 / bpm;
   const seq = [ons[0].m];
   for (let i = 1; i < ons.length; i++) {
     /* unlike import's hard reject, a too-long take is truncated at the
        slot cap — refusing would throw away the user's own performance.
        The break is all-or-nothing per note: filling part of a pause and
        then pushing the note would mis-time it onto the wrong slot */
-    const n = Math.max(1, Math.min(REC_GAP_CAP, Math.round(gaps[i - 1] / unit)));
+    const n = Math.max(1, Math.min(REC_GAP_CAP, Math.round(gaps[i - 1] / grid)));
     if (seq.length + n > MAX_IMPORT) break;
     for (let r = 1; r < n; r++) seq.push('R');
     seq.push(ons[i].m);
