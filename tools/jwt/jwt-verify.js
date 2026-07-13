@@ -9,6 +9,15 @@
    PS256/384/512 (RSA-PSS), ES256/384/512 (ECDSA on P-256/P-384/P-521,
    SPKI "BEGIN PUBLIC KEY" PEM input for the RSA/EC families).
 
+   The algorithm is always taken from the token's OWN decoded header —
+   jwtVerify() decodes the token itself and never trusts an
+   externally-supplied header, so it can never be talked into verifying
+   with an algorithm other than the one the token embeds. "alg" is matched
+   case-sensitively against the exact JWA identifiers (RFC 7518): a
+   lowercase "hs256" is Unsupported, not HS256. Segments are decoded with
+   the strict compact-JWS base64url alphabet (A–Z a–z 0–9 - _, no padding,
+   no whitespace, no standard +/).
+
    alg="none" is treated as well-formed but *unsigned* — surfaced as its
    own indeterminate state so it can never be confused with a verified
    signature; a "none" header with a non-empty signature segment is flagged
@@ -18,14 +27,32 @@
    failed (with the reason in detail), ok===null indeterminate (unsigned
    token, or no key supplied yet). Secrets and public keys stay in the
    caller's memory — nothing leaves the device. WebCrypto requires a secure
-   context (HTTPS or localhost). */
+   context (HTTPS or localhost).
 
-function b64url(s){ s=s.replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4)s+='='; return JSON.parse(decodeURIComponent(escape(atob(s)))); }
-function b64urlBytes(s){
-  s=s.replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4)s+='=';
+   Note: this verifies the signature against whatever key material the
+   caller supplies, interpreted per the token's own alg. For an interactive
+   inspector that is the intended contract (the human sees the alg). A
+   server that keeps an asymmetric public key should still pin the expected
+   algorithm before trusting a token, so a "none"/HS token can't be replayed
+   against an RSA/EC key. */
+
+const B64URL_RE=/^[A-Za-z0-9_-]*$/;
+
+/* Strict compact-JWS base64url -> bytes. Rejects padding, standard +/,
+   whitespace and any other character outside the URL-safe alphabet. */
+function b64urlBytes(seg){
+  if(typeof seg!=='string'||!B64URL_RE.test(seg)) throw new Error('segment is not valid base64url');
+  const rem=seg.length%4;
+  if(rem===1) throw new Error('segment is not valid base64url');
+  let s=seg.replace(/-/g,'+').replace(/_/g,'/');
+  if(rem) s+='='.repeat(4-rem);
   const bin=atob(s); const u=new Uint8Array(bin.length);
   for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i);
   return u;
+}
+/* Strict base64url segment -> parsed JSON (UTF-8). */
+function b64urlJson(seg){
+  return JSON.parse(new TextDecoder('utf-8').decode(b64urlBytes(seg)));
 }
 function pemToBytes(pem){
   const cleaned=pem.replace(/-----BEGIN [^-]+-----|-----END [^-]+-----/g,'').replace(/\s+/g,'');
@@ -36,43 +63,56 @@ function pemToBytes(pem){
 }
 
 /* Split and decode a compact JWS. Throws when the token is not three
-   dot-separated parts or the header/payload segments do not decode to
-   JSON. The signature segment is returned verbatim (it may be '' for
-   alg="none" tokens). */
+   dot-separated parts, a segment is not strict base64url / valid JSON, or
+   the header does not decode to a JSON object (a JOSE header must be an
+   object — this keeps callers from dereferencing .alg on null/array/scalar).
+   The signature segment is returned verbatim (it may be '' for alg="none"
+   tokens). */
 export function decodeJwt(token){
-  const v=String(token||'').trim();
+  const v=String(token==null?'':token).trim();
   const parts=v.split('.');
   if(parts.length!==3) throw new Error('Not a valid JWT — expected 3 dot-separated parts');
-  const header=b64url(parts[0]), payload=b64url(parts[1]);
+  const header=b64urlJson(parts[0]);
+  if(header===null||typeof header!=='object'||Array.isArray(header)) throw new Error('JWT header is not a JSON object');
+  const payload=b64urlJson(parts[1]);
   return { header, payload, signature: parts[2] };
 }
 
-/* Parse the JWT alg header into a kind we can dispatch on. Returns null
-   when the header has no alg field. */
+/* Parse the JWT alg header into a kind we can dispatch on. "alg" is
+   case-sensitive (RFC 7515 §4.1.1 / RFC 7518): only the exact registered
+   spellings match. Returns null when the header has no alg field. */
 export function jwtAlgInfo(alg){
   if(!alg||typeof alg!=='string') return null;
-  const A=alg.toUpperCase();
-  if(A==='NONE') return {kind:'none', alg:'none'};
-  const m=A.match(/^(HS|RS|PS|ES)(256|384|512)$/);
-  if(!m) return {kind:'unsupported', alg:A};
-  return {kind:m[1].toLowerCase(), bits:m[2], alg:A};
+  if(alg==='none') return {kind:'none', alg:'none'};
+  const m=alg.match(/^(HS|RS|PS|ES)(256|384|512)$/);
+  if(!m) return {kind:'unsupported', alg};
+  return {kind:m[1].toLowerCase(), bits:m[2], alg};
 }
 
 /* Returns {ok, label, detail}. ok===null means "indeterminate"
    (unsigned token, or waiting for the caller to supply a key).
+
+   The algorithm is read from the token's OWN header — jwtVerify decodes
+   the token internally and takes no external header, so the signature is
+   always checked with the algorithm the token actually embeds.
+
    keyText is the raw HMAC secret for the HS family, or a PEM SPKI
    public key for the RS / PS / ES families. */
-export async function jwtVerify(token, header, keyText=''){
+export async function jwtVerify(token, keyText=''){
+  let decoded;
+  try{ decoded=decodeJwt(token); }
+  catch(e){ return {ok:false, label:'Bad', detail:(e&&e.message)||'Malformed token — could not decode.'}; }
+  const header=decoded.header;
   const info=jwtAlgInfo(header.alg);
   if(!info) return {ok:false, label:'No alg', detail:'Header is missing the "alg" field — cannot verify.'};
   if(info.kind==='unsupported') return {ok:false, label:'Unsupported', detail:'Algorithm {alg} is not implemented by Web Crypto for JWT verification.'.replace('{alg}',info.alg)};
-  const parts=token.split('.');
+  const parts=String(token).trim().split('.');
   const data=new TextEncoder().encode(parts[0]+'.'+parts[1]);
   if(info.kind==='none'){
     // alg="none" is well-formed JWT syntax but explicitly disclaims any
     // cryptographic guarantee. Surface that as a warning state so it can
     // never be confused with a successfully verified signature.
-    return parts[2]
+    return decoded.signature
       ? {ok:false, label:'Bad', detail:'Header claims alg="none" but the token still has a signature segment.'}
       : {ok:null, kind:'unsigned', label:'Unsigned', detail:'Token uses alg="none" with no signature — well-formed but not cryptographically authenticated. Treat the payload as untrusted input.'};
   }
@@ -81,7 +121,7 @@ export async function jwtVerify(token, header, keyText=''){
     return {ok:null, label:'Awaiting key', detail};
   }
   let sigBytes;
-  try{ sigBytes=b64urlBytes(parts[2]); }
+  try{ sigBytes=b64urlBytes(decoded.signature); }
   catch(e){ return {ok:false, label:'Bad signature', detail:'Could not base64url-decode the signature segment.'}; }
   try{
     if(info.kind==='hs'){
