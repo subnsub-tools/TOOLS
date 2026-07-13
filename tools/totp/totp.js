@@ -19,9 +19,16 @@ export function b32dec(s){
   const c = s.replace(/=+$/,'').replace(/\s+/g,'').toUpperCase();
   if(!c) throw new Error('Empty secret');
   if(!/^[A-Z2-7]+$/.test(c)) throw new Error('Invalid Base32 characters');
+  /* RFC 4648: a valid Base32 secret encodes whole bytes, so char lengths
+     %8 of {1,3,6} are impossible, and any bits past the last whole byte
+     must be zero padding. Without both checks a trailing partial character
+     is silently dropped and two different secrets decode to the same key. */
+  if(c.length%8===1||c.length%8===3||c.length%8===6) throw new Error('Invalid Base32 length');
   let bits='';
   for(const ch of c) bits += B32.indexOf(ch).toString(2).padStart(5,'0');
-  const b=new Uint8Array(Math.floor(bits.length/8));
+  const nBytes=Math.floor(bits.length/8);
+  for(let i=nBytes*8;i<bits.length;i++) if(bits[i]!=='0') throw new Error('Invalid Base32 length');
+  const b=new Uint8Array(nBytes);
   for(let i=0;i<b.length;i++) b[i]=parseInt(bits.slice(i*8,i*8+8),2);
   return b;
 }
@@ -102,7 +109,11 @@ export function normalizeConfig(cfg){
     algorithm: c.algorithm==='SHA-256'||c.algorithm==='SHA-512' ? c.algorithm : 'SHA-1',
     digits: [6,7,8].includes(+c.digits) ? +c.digits : 6,
     period: +c.period===60 ? 60 : 30,
-    counter: Math.max(0, Math.floor(+c.counter||0)),
+    /* A "1e400"-style value coerces to Infinity; the old
+       Math.max(0, Math.floor(Infinity)) kept it, and setUint32 then aliased
+       it to counter 0's code. Only finite, exact-representable non-negative
+       integers survive. */
+    counter: Number.isFinite(+c.counter) ? Math.min(Math.max(0, Math.floor(+c.counter)), Number.MAX_SAFE_INTEGER) : 0,
   };
 }
 
