@@ -40,6 +40,7 @@ about shapes:
 | [URL](tools/url/) | `url-codec.js` | URL percent-encoding, both directions. |
 | [Hex](tools/hex/) | `hex-codec.js` | Text ↔ hexadecimal. |
 | [Base](tools/numbase/) | `base-convert.js` | Arbitrary-radix integer conversion. |
+| [Calc Pro](tools/calcpro/) | `calcpro-engine.js` | Wolfram-style math pad engine — exact BigInt rationals, unit/dimension algebra, bases & bitwise, date maths, closed-form detection. |
 | [HTML](tools/html/) | `html-entities.js` | HTML entity encode/decode. |
 | [JSON](tools/json/) | `json-format.js` | JSON format / validate / minify. |
 | [YAML](tools/yaml/) | `yaml-convert.js` | YAML ↔ JSON, hand-rolled parser and emitter. |
