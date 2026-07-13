@@ -88,8 +88,9 @@ ownership across reconnects.
 
 One ordered `RTCDataChannel` ("files") per peer pair, created by the side
 with the smaller id so there is never offer glare. String frames are JSON
-control; binary frames are file bytes (256 KiB chunks, clamped to the
-remote's SCTP `maxMessageSize`, never below 16 KiB):
+control; binary frames are file bytes (256 KiB chunks, never above the
+remote's SCTP `maxMessageSize` — that negotiated ceiling always wins, even
+if the peer advertises under 16 KiB):
 
 | frame | meaning |
 | --- | --- |
