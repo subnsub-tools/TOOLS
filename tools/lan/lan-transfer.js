@@ -215,7 +215,7 @@ class Peer {
     this.dev = ''; this.orphaned = false;   /* dev: the peer's stable device id (from its name frame); orphaned: roster row gone but a live transfer is still riding the P2P channel */
     this.pc = null; this.dc = null; this.connected = false; this.gen = 0;
     this.sendQueue = []; this.sending = null; this.incoming = null;
-    this.readyResolvers = {}; this.receivedResolvers = {};
+    this.readyResolvers = Object.create(null); this.receivedResolvers = Object.create(null);   /* null-proto: a control frame keyed by id '__proto__'/'constructor'/… must not resolve to an inherited Object.prototype member and get called as a function */
     this.chunkSize = PREFERRED_CHUNK; this.sendPaused = false; this._resumeResolve = null;
     this._verified = false;   /* this connection echoed a resume tk — proven to be the original transfer partner, not just a device-id claimant */
   }
@@ -278,7 +278,7 @@ class Peer {
     this.dc = dc; dc.binaryType = 'arraybuffer';
     const gen = this.gen, live = () => gen === this.gen;
     try { dc.bufferedAmountLowThreshold = LOW_WATER; } catch {}
-    dc.onopen = () => { if (!live()) { try { dc.close(); } catch {} return; } this.connected = true; this.app.ui.peerState(this.id, 'connected'); const sctp = this.pc && this.pc.sctp && this.pc.sctp.maxMessageSize; if (sctp) this.chunkSize = Math.max(MIN_CHUNK, Math.min(PREFERRED_CHUNK, sctp)); this.app._resumeInto(this); this._pump(); };   /* clamp chunks to what the remote's SCTP stack accepts */
+    dc.onopen = () => { if (!live()) { try { dc.close(); } catch {} return; } this.connected = true; this.app.ui.peerState(this.id, 'connected'); const sctp = this.pc && this.pc.sctp && this.pc.sctp.maxMessageSize; if (sctp) this.chunkSize = Math.min(sctp, Math.max(MIN_CHUNK, Math.min(PREFERRED_CHUNK, sctp))); this.app._resumeInto(this); this._pump(); };   /* clamp chunks to what the remote's SCTP stack accepts: prefer PREFERRED_CHUNK, floor at MIN_CHUNK, but the negotiated max-message-size is the hard ceiling — never floor above it (a peer may advertise < MIN_CHUNK, and a 16KiB send would then throw) */
     dc.onclose = () => { if (!live()) return; this._resetConn(); this._onClosed(); this.app.ui.peerState(this.id, 'failed'); };   /* reset FIRST (null dc/pc, bump gen) so a resume redial can rebuild */
     dc.onmessage = (ev) => { if (live()) this._onMessage(ev.data); };
   }
@@ -367,9 +367,9 @@ class Peer {
   _onControl(text) {
     let m; try { m = JSON.parse(text); } catch { return; }
     if (m.t === 'meta') this._onMeta(m);
-    else if (m.t === 'ready') { const r = this.readyResolvers[m.id]; if (r) { delete this.readyResolvers[m.id]; r(m); } }
+    else if (m.t === 'ready') { const r = this.readyResolvers[m.id]; if (typeof r === 'function') { delete this.readyResolvers[m.id]; r(m); } }
     else if (m.t === 'done') this._finish(m.id);
-    else if (m.t === 'received') { const r = this.receivedResolvers[m.id]; if (r) { delete this.receivedResolvers[m.id]; r(); } }
+    else if (m.t === 'received') { const r = this.receivedResolvers[m.id]; if (typeof r === 'function') { delete this.receivedResolvers[m.id]; r(); } }
     else if (m.t === 'awaiting') { if (this.sending && this.sending.id === m.id) this.app.ui.xferAwait(this.id, this.sending); }   /* receiver is showing its first-contact accept prompt */
     else if (m.t === 'trust') { this.app._takeTok(this.dev, this.id, m.tok); }   /* this device granted us first-contact trust — echo the token on future offers (_takeTok validates the shape) */
     else if (m.t === 'pause') { if (this.sending && this.sending.id === m.id) this.sendPaused = true; }
