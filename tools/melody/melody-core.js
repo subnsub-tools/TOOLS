@@ -272,18 +272,25 @@ export function quantizeTaps(taps, fallbackBpm) {
   const fast = gaps.filter(g => g <= minG * 1.45);
   let unit = fast.reduce((a, b) => a + b, 0) / fast.length;
   const err = u => gaps.reduce((s, g) => s + Math.abs(g - Math.max(1, Math.round(g / u)) * u), 0);
-  if (60 / (unit / 2) <= 240 && err(unit / 2) < err(unit) * 0.5) unit /= 2;
+  /* the fine grid is floored at the 240 BPM ceiling rather than skipped
+     past it — a 0.49s pulse still gets its 2:3 figures caught by the
+     0.25s grid instead of collapsing onto the coarse one */
+  const half = Math.max(unit / 2, 60 / 240);
+  if (half < unit && err(half) < err(unit) * 0.5) unit = half;
   /* one slot per unit; clamping to the 40–240 BPM range re-times the
      unit, so tapping faster than 240 BPM flattens to adjacent slots and
      slower than 40 stretches into rests — both honest within the model */
   const bpm = Math.max(40, Math.min(240, Math.round(60 / unit)));
   unit = 60 / bpm;
   const seq = [ons[0].m];
-  for (let i = 1; i < ons.length && seq.length < MAX_IMPORT; i++) {
+  for (let i = 1; i < ons.length; i++) {
     /* unlike import's hard reject, a too-long take is truncated at the
-       slot cap — refusing would throw away the user's own performance */
+       slot cap — refusing would throw away the user's own performance.
+       The break is all-or-nothing per note: filling part of a pause and
+       then pushing the note would mis-time it onto the wrong slot */
     const n = Math.max(1, Math.min(REC_GAP_CAP, Math.round(gaps[i - 1] / unit)));
-    for (let r = 1; r < n && seq.length < MAX_IMPORT - 1; r++) seq.push('R');
+    if (seq.length + n > MAX_IMPORT) break;
+    for (let r = 1; r < n; r++) seq.push('R');
     seq.push(ons[i].m);
   }
   return { seq, bpm };
