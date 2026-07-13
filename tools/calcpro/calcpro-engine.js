@@ -1309,8 +1309,23 @@
     }
   }
 
+  /* parse-only entry for the 2D pretty-preview: AST or null, never throws.
+     Node shapes: num/id/call/bin/neg/bnot/pct/fact/conv/convbase. */
+  function parseTree(src) {
+    try {
+      src = String(src || '');
+      if (!src.trim() || src.length > 2000) return null;
+      var toks = tokenize(src);
+      if (!toks.length) return null;
+      var p = new Parser(toks);
+      var ast = p.parseExpr(0);
+      return p.peek() ? null : ast;
+    } catch (_) { return null; }
+  }
+
   return {
     evaluate: evaluate,
+    parseTree: parseTree,
     /* exposed for tests */
     _internals: { tokenize: tokenize, fmtF: fmtF, closedForm: closedForm, lookupUnit: lookupUnit }
   };
