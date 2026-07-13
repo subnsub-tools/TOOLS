@@ -17,16 +17,23 @@ so the "verified locally" claim is auditable.
 import { decodeJwt, jwtAlgInfo, jwtVerify } from './jwt-verify.js';
 
 const { header, payload, signature } = decodeJwt(token);
-// throws: 'Not a valid JWT — expected 3 dot-separated parts', or the
-// base64url/JSON error for a segment that does not decode
+// throws: 'Not a valid JWT — expected 3 dot-separated parts', 'JWT header
+// is not a JSON object', or the strict-base64url / JSON error for a segment
+// that does not decode. header is always a JSON object (never null/scalar),
+// so reading header.alg is safe.
 
 jwtAlgInfo(header.alg);
+// alg is matched case-sensitively (RFC 7518): 'HS256' → hs, 'hs256' → unsupported
 // → { kind:'hs'|'rs'|'ps'|'es', bits:'256'|'384'|'512', alg:'HS256' }
 //   | { kind:'none', alg:'none' } | { kind:'unsupported', alg } | null
 
-const r = await jwtVerify(token, header, keyText);
+const r = await jwtVerify(token, keyText);
+// Verifies against the algorithm in the TOKEN's OWN header: jwtVerify decodes
+// the token itself and takes no external header, so it can never be steered
+// to an algorithm other than the one the token embeds.
 // r.ok === true   signature verified            (r.label 'Valid')
-// r.ok === false  failed — reason in r.detail   ('Invalid', 'No alg', …)
+// r.ok === false  failed — reason in r.detail   ('Invalid', 'Unsupported',
+//                 'No alg', 'Bad', 'Bad signature', 'Key error')
 // r.ok === null   indeterminate: no key supplied yet ('Awaiting key'),
 //                 or alg="none" (r.kind === 'unsigned')
 ```
@@ -50,6 +57,16 @@ exist elsewhere. Decoding alone has no such requirement.
 - Verification checks the signature only. Claim validation (`exp`, `nbf`,
   `aud`, issuer trust) is presentation/policy and stays with the caller —
   the decoded payload gives you the claims to check.
-- Decoding is intentionally permissive about content (any JSON header and
-  payload) and strict about shape (exactly three segments). Payload text is
-  decoded as UTF-8.
+- The algorithm is read from the token's own header, and `alg` is compared
+  case-sensitively against the exact JWA names — so a mismatched external
+  header can't force a different algorithm, and `"hs256"` is `Unsupported`
+  rather than silently treated as HS256. Still, `jwtVerify` checks the
+  signature against whatever key you pass, interpreted per that alg: a
+  service holding an RSA/EC public key should pin the expected algorithm
+  before trusting a token, so a forged `none`/HS token can't be replayed
+  against the public key. For the interactive inspector (the human reads the
+  alg) that pinning is out of scope.
+- Decoding is permissive about claim content (any JSON payload) and strict
+  about shape: exactly three segments, each strict compact-JWS base64url
+  (`A–Z a–z 0–9 - _`, no padding, no whitespace, no standard `+/`), and the
+  header must be a JSON object. Payload text is decoded as UTF-8.

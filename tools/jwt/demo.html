@@ -65,9 +65,12 @@ localhost.</p>
     }
     $('header').textContent = JSON.stringify(d.header, null, 2);
     $('payload').textContent = JSON.stringify(d.payload, null, 2);
+    // decodeJwt guarantees d.header is a JSON object, so .alg is safe here.
     $('keylbl').textContent = keyHint(d.header.alg);
     const seq = ++verifySeq;
-    const r = await jwtVerify(v, d.header, $('key').value);
+    // jwtVerify re-derives the algorithm from the token itself — it takes no
+    // header argument, so the key is checked against the token's own alg.
+    const r = await jwtVerify(v, $('key').value);
     if (seq !== verifySeq) return;   /* a newer verify started — drop result */
     $('vstate').textContent = r.label;
     $('vstate').className = r.ok === true ? '' : r.ok === false ? 'err' : '';
