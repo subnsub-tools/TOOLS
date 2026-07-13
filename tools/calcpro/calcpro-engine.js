@@ -78,10 +78,22 @@
   }
 
   /* dispatching arithmetic.  q handled by callers (evalNode) except mul/div. */
+  var TH_DIM = [0, 0, 0, 0, 1, 0, 0, 0, 0];
+  function isAffineUE(ue) {
+    var k = Object.keys(ue);
+    if (k.length !== 1 || ue[k[0]] !== 1) return false;
+    var u = lookupUnit(k[0]);
+    return !!(u && u.off);
+  }
   function addN(a, b) {
     if (a.k === 'q' || b.k === 'q') {
       if (a.k !== 'q' || b.k !== 'q' || !dimEq(a.dim, b.dim)) throw dimErr(a, b, '+');
-      return mkQ(addN(a.v, b.v), a.dim, a.ue);
+      var ueOut = a.ue;
+      /* 25 degC - 20 degC: combining two ABSOLUTE temperatures yields a
+         delta — keep it in kelvin, or the affine display offset would be
+         applied a second time (-268.15 °C for a 5 K difference) */
+      if (dimEq(a.dim, TH_DIM) && isAffineUE(a.ue) && isAffineUE(b.ue)) ueOut = { K: 1 };
+      return mkQ(addN(a.v, b.v), a.dim, ueOut);
     }
     if (a.k === 'c' || b.k === 'c') { var ca = toC(a), cb = toC(b); return mkC(ca.re + cb.re, ca.im + cb.im); }
     if (a.k === 'f' || b.k === 'f') return mkF(toF(a) + toF(b));
@@ -188,7 +200,13 @@
           var nn = ipowBig(a.n, e), dd = ipowBig(a.d, e);
           return neg ? mkR(dd, nn) : mkR(nn, dd);
         }
-        return powFloat(ratToNumber(a.n, a.d), ratToNumber(b.n, b.d));
+        /* float demotion would round the exponent past 2^53 and lose its
+           parity — (-1)^(2^53+1) must stay -1, so take the sign from the
+           BigInt exponent before converting */
+        var negBase = a.n < 0n;
+        var mag = Math.pow(Math.abs(ratToNumber(a.n, a.d)), ratToNumber(e, 1n));
+        if (neg) mag = 1 / mag;
+        return mkF(negBase && (e & 1n) === 1n ? -mag : mag);
       }
       if (b.d <= 64n) { // try exact q-th root, then p-th power
         var rt = ratRoot(a, Number(b.d));
@@ -396,6 +414,54 @@
     if (neg.length) s = (s || '1') + '/' + (neg.length > 1 ? '(' + neg.join('·') + ')' : neg[0]);
     return s;
   }
+  function ueToStringRaw(ue) { // raw key names (degC not °C) — must re-parse
+    var pos = [], neg = [], k, e;
+    for (k in ue) {
+      e = ue[k];
+      if (e > 0) pos.push(e === 1 ? k : k + '^' + e);
+      else neg.push(e === -1 ? k : k + '^' + (-e));
+    }
+    if (!pos.length && !neg.length) return '';
+    var out = pos.join('*');
+    if (neg.length) out = (out || '1') + '/' + (neg.length > 1 ? '(' + neg.join('*') + ')' : neg[0]);
+    return out;
+  }
+  /* canonical, re-parseable rendering (no digit grouping, raw unit names) —
+     what the big screen's = key feeds back for continued calculation */
+  function plainNum(x) {
+    if (x.k === 'r') {
+      if (x.d === 1n) return x.n.toString();
+      var dec = ratDecimal(x);
+      if (dec) return dec.replace(/,/g, '');
+      return x.n.toString() + '/' + x.d.toString();
+    }
+    if (x.k === 'f') return isFinite(x.v) ? String(x.v) : null;
+    if (x.k === 'c') {
+      if (!isFinite(x.re) || !isFinite(x.im)) return null;
+      var imAbs = Math.abs(x.im) === 1 ? '' : String(Math.abs(x.im));
+      if (x.re === 0) return (x.im < 0 ? '-' : '') + imAbs + 'i';
+      return String(x.re) + (x.im < 0 ? '-' : '+') + imAbs + 'i';
+    }
+    if (x.k === 'q') {
+      var disp = null, qk = Object.keys(x.ue);
+      if (qk.length === 1 && x.ue[qk[0]] === 1) {
+        var au = lookupUnit(qk[0]);
+        if (au && au.off) disp = divN(subN(x.v, au.off), au.f);
+      }
+      if (!disp) {
+        var f = ueFactor(x.ue);
+        disp = f ? divN(x.v, f) : x.v;
+      }
+      var p = plainNum(disp);
+      var us = ueToStringRaw(x.ue);
+      if (p == null) return null;
+      /* a fractional value must be parenthesised before the unit, or the
+         tight implicit-mul would parse 4000000/381 ft as 4000000/(381 ft) */
+      if (us && p.indexOf('/') >= 0) p = '(' + p + ')';
+      return us ? p + ' ' + us : p;
+    }
+    return null;
+  }
   function ueFactor(ue) { // combined SI factor of a display-unit map
     var f = mkR(1n, 1n), k;
     for (k in ue) {
@@ -487,8 +553,10 @@
     for (var kk = 0; kk < toks.length; kk++) {
       if (toks[kk].t !== 'conv?') continue;
       var prev = toks[kk - 1], next = toks[kk + 1];
-      var inch = prev && prev.t === 'num' &&
-        (!next || next.t === 'conv?' || (next.t === 'op' && next.s !== 'of') || next.t === ')');
+      var inch = (prev && prev.t === 'num' &&
+        (!next || next.t === 'conv?' || (next.t === 'op' && next.s !== 'of') || next.t === ')')) ||
+        /* conversion-target / unit-expression position: `5 cm to in`, `m/in` */
+        (prev && prev.t === 'op' && (prev.s === 'to' || prev.s === '/' || prev.s === '*' || prev.s === '^'));
       toks[kk] = inch ? { t: 'id', s: 'in' } : { t: 'op', s: 'to' };
     }
     /* post-pass 2: '%' is MOD when a value follows (including a unary-
@@ -746,7 +814,7 @@
     gamma: { n: 1, f: function (a) { return mkF(gammaF(plainF(a))); } },
     mod: { n: 2, f: function (a, b) { return modN(a, b); } },
     re: { n: 1, f: function (a) { return a.k === 'c' ? mkF(a.re) : (a.k === 'q' ? errPlain() : a); } },
-    im: { n: 1, f: function (a) { return a.k === 'c' ? mkF(a.im) : mkR(0n, 1n); } },
+    im: { n: 1, f: function (a) { if (a.k === 'q') errPlain(); return a.k === 'c' ? mkF(a.im) : mkR(0n, 1n); } },
     conj: { n: 1, f: function (a) { return a.k === 'c' ? mkC(a.re, -a.im) : a; } },
     arg: { n: 1, f: function (a) { var c = toC(a.k === 'q' ? errPlain() : a); return mkF(Math.atan2(c.im, c.re)); } }
   };
@@ -769,7 +837,7 @@
       if (!args.length) throw new CalcErr('math', name + ' needs arguments');
       var acc = asIntBig(args[0], name), i;
       for (i = 1; i < args.length; i++) acc = op(acc, asIntBig(args[i], name));
-      return mkR(acc, 1n);
+      return mkR(acc < 0n ? -acc : acc, 1n); // gcd/lcm are defined non-negative
     };
   }
   function cmpFold(sgn) {
@@ -830,7 +898,22 @@
           if (nd.base !== 10) self.sawBase = true;
           return parseNumTok(nd);
         case 'id': return self.ident(nd.name);
-        case 'neg': return negN(ev(nd.x));
+        case 'neg': {
+          /* -40 degC: the sign belongs to the affine coefficient — negating
+             the converted kelvin value instead gave -586.3 °C */
+          if (nd.x.t === 'bin' && nd.x.op === '*' && nd.x.r.t === 'id') {
+            var negU = lookupUnit(nd.x.r.name);
+            if (negU && negU.off) {
+              var negL = ev(nd.x.l);
+              if (negL.k === 'r' || negL.k === 'f') {
+                var negSi = addN(mulN(negN(negL), negU.f), negU.off);
+                var negUe = {}; negUe[nd.x.r.name] = 1;
+                return mkQ(negSi, negU.dim, negUe);
+              }
+            }
+          }
+          return negN(ev(nd.x));
+        }
         case 'bnot': self.sawBase = true; return mkR(~asIntBig(ev(nd.x), 'bitwise not'), 1n);
         case 'pct': return divN(ev(nd.x), mkR(100n, 1n));
         case 'fact': return factN(ev(nd.x));
@@ -1208,8 +1291,10 @@
     else {
       var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
       if (!m) return null;
-      d = new Date(+m[1], +m[2] - 1, +m[3]);
-      if (d.getMonth() !== +m[2] - 1 || d.getDate() !== +m[3]) throw new CalcErr('math', '“' + s + '” is not a real calendar date');
+      d = new Date(0);
+      d.setFullYear(+m[1], +m[2] - 1, +m[3]); // years 0-99 must not map to 19xx
+      d.setHours(0, 0, 0, 0);
+      if (d.getFullYear() !== +m[1] || d.getMonth() !== +m[2] - 1 || d.getDate() !== +m[3]) throw new CalcErr('math', '“' + s + '” is not a real calendar date');
     }
     return { d: d, time: time };
   }
@@ -1246,7 +1331,7 @@
     var last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
     d.setDate(Math.min(day, last));
   }
-  function isoDate(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+  function isoDate(d) { return String(d.getFullYear()).padStart(4, '0') + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
   function pad2(n) { return (n < 10 ? '0' : '') + n; }
   function dayOfYear(d) { return Math.round((midnight(d) - new Date(d.getFullYear(), 0, 1).getTime()) / 86400000) + 1; }
   function isoWeek(d) {
@@ -1268,7 +1353,7 @@
     try {
       if (dateSniff(src)) {
         var dr = dateEval(src, opts.now || Date.now());
-        return { ok: true, kindOf: 'date', cards: dr.cards, text: dr.text, ans: null };
+        return { ok: true, kindOf: 'date', cards: dr.cards, text: dr.text, replay: dr.text, ans: null };
       }
       var toks = tokenize(src);
       if (!toks.length) return { ok: false, kind: 'syntax', msg: 'empty' };
@@ -1301,7 +1386,8 @@
         }
       }
       var short = mainCard.exact + (mainCard.approx ? ' ≈ ' + mainCard.approx : '');
-      return { ok: true, kindOf: 'math', cards: cards, text: short, ans: val.k === 'q' ? { k: 'q', v: val.v, dim: val.dim, ue: val.ue } : val };
+      return { ok: true, kindOf: 'math', cards: cards, text: short, replay: plainNum(val),
+               ans: val.k === 'q' ? { k: 'q', v: val.v, dim: val.dim, ue: val.ue } : val };
     } catch (err) {
       if (err instanceof CalcErr) return { ok: false, kind: err.kind, msg: err.msg };
       if (err instanceof RangeError) return { ok: false, kind: 'math', msg: 'number too large to compute' };
