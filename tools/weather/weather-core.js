@@ -370,10 +370,10 @@ export function tempNum(c, f, fahrenheit){
   return v != null ? Math.round(v) + '°' : '—';
 }
 
-/* Forecast-day label: Today / Tomorrow / short weekday. Comparison runs
+/* Day label: Yesterday / Today / Tomorrow / short weekday. Comparison runs
    at local noon so DST shifts can't move a date across the midnight line.
-   opts: { locale, today, tomorrow, now } — label strings are i18n'd
-   on-site and injectable here. */
+   opts: { locale, today, tomorrow, yesterday, now } — label strings are
+   i18n'd on-site and injectable here. */
 export function dayName(dateStr, opts){
   opts = opts || {};
   try {
@@ -383,6 +383,7 @@ export function dayName(dateStr, opts){
     const diff = Math.round((d - today) / 86400000);
     if (diff === 0) return opts.today || 'Today';
     if (diff === 1) return opts.tomorrow || 'Tomorrow';
+    if (diff === -1) return opts.yesterday || 'Yesterday';
     return d.toLocaleDateString(opts.locale, { weekday: 'short' });
   } catch (_) { return dateStr; }
 }
@@ -412,8 +413,12 @@ export function upcomingHours(forecast, now){
 }
 
 /* The daily rows: each day's low→high segment positioned inside the
-   3-day overall range (left/width in %, one decimal), so the bars line
-   up as a shared thermometer. */
+   overall range of whatever is handed in (left/width in %, one decimal),
+   so the bars line up as one shared thermometer. Past days are passed by
+   concatenating them ahead of the forecast — sharing the scale is the
+   point, since it is what makes a cold yesterday read as cold next to
+   today. They stay a separate array until this call because forecast[0]
+   is read as "today" elsewhere. */
 export function dailyBars(forecast, fahrenheit){
   if (!forecast) return [];
   let allMin = Infinity, allMax = -Infinity;
