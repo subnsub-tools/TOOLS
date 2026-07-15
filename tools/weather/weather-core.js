@@ -370,21 +370,38 @@ export function tempNum(c, f, fahrenheit){
   return v != null ? Math.round(v) + '°' : '—';
 }
 
-/* Day label: Yesterday / Today / Tomorrow / short weekday. Comparison runs
-   at local noon so DST shifts can't move a date across the midnight line.
-   opts: { locale, today, tomorrow, yesterday, now } — label strings are
-   i18n'd on-site and injectable here. */
+/* Day label: Yesterday / Today / Tomorrow / short weekday.
+
+   Measured against opts.baseDate — the CITY's today, i.e. the forecast's
+   own first day — rather than the viewer's clock. The two disagree across
+   the date line: a viewer in Shanghai looking up Honolulu (still on the
+   previous day) would see the city's TODAY labelled "Yesterday" and the
+   real past day pushed out to a weekday name. Both values are bare
+   calendar dates, so the diff runs on the UTC day index and neither the
+   viewer's zone nor a DST jump enters the arithmetic.
+
+   Without a baseDate it falls back to opts.now / the local clock, still
+   compared at local noon so DST can't move a date across midnight.
+   opts: { locale, today, tomorrow, yesterday, baseDate, now } — label
+   strings are i18n'd on-site and injectable here. */
 export function dayName(dateStr, opts){
   opts = opts || {};
   try {
-    const d = new Date(dateStr + 'T12:00:00');
-    const today = opts.now ? new Date(opts.now) : new Date();
-    today.setHours(12, 0, 0, 0);
-    const diff = Math.round((d - today) / 86400000);
+    let diff = NaN;
+    if (opts.baseDate) {
+      const a = Date.parse(dateStr + 'T00:00:00Z'), b = Date.parse(opts.baseDate + 'T00:00:00Z');
+      if (!isNaN(a) && !isNaN(b)) diff = Math.round((a - b) / 86400000);
+    }
+    if (isNaN(diff)) {
+      const d0 = new Date(dateStr + 'T12:00:00');
+      const t0 = opts.now ? new Date(opts.now) : new Date();
+      t0.setHours(12, 0, 0, 0);
+      diff = Math.round((d0 - t0) / 86400000);
+    }
     if (diff === 0) return opts.today || 'Today';
     if (diff === 1) return opts.tomorrow || 'Tomorrow';
     if (diff === -1) return opts.yesterday || 'Yesterday';
-    return d.toLocaleDateString(opts.locale, { weekday: 'short' });
+    return new Date(dateStr + 'T12:00:00').toLocaleDateString(opts.locale, { weekday: 'short' });
   } catch (_) { return dateStr; }
 }
 
