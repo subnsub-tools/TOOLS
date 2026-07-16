@@ -60,7 +60,6 @@ about shapes:
 | [Stocks](tools/stocks/) | `stock-quotes.js` | Quote payload normalisation, change math, sparkline shaping. |
 | [World Cup](tools/worldcup/) | `worldcup-schedule.js` | Schedule normalisation, group tables, kickoff time-zone handling. |
 | [Weather](tools/weather/) | `weather-core.js` | Geocoding query strategy (CJK-aware) + weather-code mapping. |
-| [Today](tools/today/) | `today-aggregate.js` | Pinned-tools aggregation model and scheduler. |
 | [Speed](tools/speed/) | `speed-orchestrate.js` | Measurement orchestration + scoring around the speed-test engine. |
 | [My IP](tools/myip/) | `ip-exposure.js` | Local-address probing + IP classification and exposure summary. |
 | [Clipboard](tools/clipboard/) | `clipboard-core.js` | Clipboard interop layer — Safari-safe writes, guarded image decode. |
