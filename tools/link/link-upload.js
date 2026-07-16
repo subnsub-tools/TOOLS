@@ -46,7 +46,7 @@ export const CONCURRENCY = 3;
 
 /* Baseline caps — a conservative default. The real cap is configured and
    enforced server-side; callers here pass their own maxBytes/maxBatch. */
-export const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
+export const DEFAULT_MAX_BYTES = 3 * 1024 * 1024;
 export const DEFAULT_MAX_BATCH = 1;
 
 /* ── formatters (pure; the in-page rows render through these) ── */
@@ -83,7 +83,7 @@ export function isVideoFile(file){
    offered and what the no-choice default is are account policy applied
    server-side, not module logic, and the server re-validates every
    request regardless. */
-export const EXPIRY_PRESETS = [5, 10, 15, 30, 60, 120, 180, 300]; /* minutes */
+export const EXPIRY_PRESETS = [5, 10, 15, 30, 60, 120, 180]; /* minutes */
 
 /* Exact integer that is on the allowed list, or null. Exact-integer
    only — a tampered '120abc' or '5.9' must not slip past as a valid
