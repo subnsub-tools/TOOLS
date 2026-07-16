@@ -32,7 +32,7 @@ import { uploadBatch, sanitizeExpiryMinutes } from './link-upload.js';
 const { items, ignored } = await uploadBatch(fileList, {
   upload: myTransport,          // (file, {expiresInMinutes, onProgress}) => Promise<record>
   concurrency: 3,               // worker pool size (default CONCURRENCY = 3)
-  maxBytes: 15 * 1024 * 1024,   // courtesy cap — the server re-checks with the real one
+  maxBytes: 10 * 1024 * 1024,   // courtesy cap — the server re-checks with the real one
   maxBatch: 20,                 // extra files are trimmed, counted in `ignored`
   expiresInMinutes: sanitizeExpiryMinutes(userInput),  // null → omitted, server default
   onStart:    (item)        => {},
@@ -85,7 +85,7 @@ Video → keyframes ZIP (browser only — it is `<video>` + `<canvas>` work):
 import { videoToFramesZip } from './link-upload.js';
 
 const out = await videoToFramesZip(videoFile, {
-  maxBytes: 15 * 1024 * 1024,          // the packed ZIP is thinned to fit this
+  maxBytes: 10 * 1024 * 1024,          // the packed ZIP is thinned to fit this
   onProgress: (stage, pct, info) => {},// 'analyze' | 'extract' | 'sheet' | 'pack'
   cancelled: () => false,              // poll-to-abort; true → resolves null
 });
