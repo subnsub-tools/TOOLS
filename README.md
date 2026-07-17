@@ -24,7 +24,7 @@ about shapes:
   models. The site fetches source data through same-origin proxies; the
   payload shape each module consumes is documented in its README, and the
   modules themselves perform no network I/O.
-- **Connected tools** (transfer, link sharing, clipboard slots): the
+- **Connected tools** (transfer, file sharing, clipboard slots): the
   module here is the client engine — protocols, chunking, orchestration.
   Server counterparts (storage, signalling, short-link minting) are not
   part of this repository; each README states the wire contract the
@@ -63,7 +63,7 @@ about shapes:
 | [Speed](tools/speed/) | `speed-orchestrate.js` | Measurement orchestration + scoring around the speed-test engine. |
 | [My IP](tools/myip/) | `ip-exposure.js` | Local-address probing + IP classification and exposure summary. |
 | [Clipboard](tools/clipboard/) | `clipboard-core.js` | Clipboard interop layer — Safari-safe writes, guarded image decode. |
-| [Link](tools/link/) | `link-upload.js` | Upload orchestration — batching, concurrency, retries, expiry model. |
+| [File Sharing](tools/link/) | `link-upload.js` | Upload orchestration — batching, concurrency, retries, expiry model. |
 | [Transfer](tools/lan/) | `lan-transfer.js` | WebRTC P2P file transfer — chunking, resume, streaming sink. |
 | [Melody](tools/melody/) | `melody-core.js` | WebAudio synth, melody format, MIDI (SMF) import. |
 
