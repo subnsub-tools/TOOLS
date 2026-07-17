@@ -72,6 +72,43 @@ export async function readText() {
   return text;
 }
 
+/* Full clipboard read, image-first — the "From clipboard" button's face.
+   readText() alone misreports an image-only clipboard (a screenshot) as
+   empty, so hosts with an image sink call this instead. Resolves
+   { kind:'image', blob } for the first image flavour found, else
+   { kind:'text', text } — image wins when both are present, the same
+   precedence imageFromPaste() gives a paste. Hosts without an image sink
+   (signed-out, image UI absent) pass wantImage:false to skip straight to
+   text extraction from the SAME read — no second permission interaction.
+   Throws 'denied' when read() is refused (no readText() retry: one
+   permission prompt per user gesture) and 'empty' when nothing usable is
+   found. Engines without read() fall back to the text-only readText(). */
+export async function readClipboard(wantImage = true) {
+  if (!(navigator.clipboard && navigator.clipboard.read)) {
+    return { kind: 'text', text: await readText() };
+  }
+  let items = null;
+  try { items = await navigator.clipboard.read(); }
+  catch (_) { throw fail('denied'); }
+  if (wantImage) {
+    for (const it of (items || [])) {
+      const t = (it.types || []).find(x => /^image\//.test(x));
+      if (!t) continue;
+      let blob = null;
+      try { blob = await it.getType(t); } catch (_) {}
+      if (blob && blob.size) return { kind: 'image', blob };
+    }
+  }
+  let text = '';
+  for (const it of (items || [])) {
+    if (!(it.types || []).includes('text/plain')) continue;
+    try { text = await (await it.getType('text/plain')).text(); } catch (_) {}
+    break;
+  }
+  if (!text || !text.trim()) throw fail('empty');
+  return { kind: 'text', text };
+}
+
 /* ── paste extraction ── */
 
 /* True when an event target is an editable field. Page-level paste
