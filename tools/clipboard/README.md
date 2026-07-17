@@ -10,7 +10,7 @@ auditable: what is read, when, and what exactly gets written back.
 ## Files
 
 - [`clipboard-core.js`](clipboard-core.js) — the module: `copyText()`,
-  `readText()`, `textFromPaste()`, `imageFromPaste()`,
+  `readText()`, `readClipboard()`, `textFromPaste()`, `imageFromPaste()`,
   `isEditableTarget()`, `imageDims()`, `toPng()`, `copyImage()`
 - [`demo.html`](demo.html) — minimal standalone page exercising the module
 
@@ -32,6 +32,14 @@ try {
   //                       fall back to "paste it manually"
   // e.code === 'empty'  → clipboard readable but blank
 }
+
+// Grab button, image-first: a screenshot on the clipboard must not be
+// misread as "empty". Same 'denied' / 'empty' taxonomy as readText().
+try {
+  const got = await readClipboard(canTakeImages());
+  if (got.kind === 'image') handleImage(got.blob);
+  else handleText(got.text);
+} catch (e) { /* 'denied' | 'empty' */ }
 
 // Paste, image-first: capture phase claims screenshots before any
 // text handler can misread them; editable fields keep normal paste.
