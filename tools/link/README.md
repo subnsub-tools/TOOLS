@@ -1,7 +1,7 @@
-# Link — file-share upload client
+# File Sharing — upload client
 
 Batch-upload orchestration and the video → keyframes pipeline behind the
-Link tool on [subnsub.com](https://subnsub.com) (drop a file, get a
+File Sharing tool on [subnsub.com](https://subnsub.com) (drop a file, get a
 short-lived link; also the standalone `/link` page). Published so the
 client-side claims are auditable: what the page checks before it spends an
 upload, how the concurrent batch queue works, how link lifetimes are
