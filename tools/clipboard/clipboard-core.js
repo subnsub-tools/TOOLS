@@ -102,8 +102,14 @@ export async function readClipboard(wantImage = true) {
   let text = '';
   for (const it of (items || [])) {
     if (!(it.types || []).includes('text/plain')) continue;
-    try { text = await (await it.getType('text/plain')).text(); } catch (_) {}
-    break;
+    /* Response#text() instead of Blob#text(): Safari 13.1 ships read()
+       without Blob#text(). getType() may also reject or yield blank
+       (clipboard changed after read(); multi-item clipboards) — keep
+       scanning instead of committing to the first candidate. */
+    try {
+      const t = await new Response(await it.getType('text/plain')).text();
+      if (t && t.trim()) { text = t; break; }
+    } catch (_) {}
   }
   if (!text || !text.trim()) throw fail('empty');
   return { kind: 'text', text };
