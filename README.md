@@ -58,7 +58,6 @@ about shapes:
 | [Cron](tools/cron/) | `cron-parse.js` | Cron expression parser + next-run computation. |
 | [Currency](tools/fx/) | `fx-convert.js` | Cross-rate math over a USD-base rate table. |
 | [Stocks](tools/stocks/) | `stock-quotes.js` | Quote payload normalisation, change math, sparkline shaping. |
-| [World Cup](tools/worldcup/) | `worldcup-schedule.js` | Schedule normalisation, group tables, kickoff time-zone handling. |
 | [Weather](tools/weather/) | `weather-core.js` | Geocoding query strategy (CJK-aware) + weather-code mapping. |
 | [Speed](tools/speed/) | `speed-orchestrate.js` | Measurement orchestration + scoring around the speed-test engine. |
 | [My IP](tools/myip/) | `ip-exposure.js` | Local-address probing + IP classification and exposure summary. |
