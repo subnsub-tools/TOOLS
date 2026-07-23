@@ -32,6 +32,13 @@
      still-live link. expiresInMinutes: null omits the field entirely so
      the server applies its own default for the session.
 
+   Text-paste lane:
+     The same pipeline accepts a plain-text snippet instead of a file;
+     pasteBytesOf() / pasteDisplayName() / pastePreflight() are the pure
+     halves (honest UTF-8 byte counting, first-line display name, the
+     courtesy cap check). See the README for the wire shape and how the
+     /p/<id> viewer + /p/<id>.txt raw twin serve the result.
+
    Video half (browser-only — <video> and <canvas> are the whole point):
      videoToFramesZip() turns a video file into a store-only ZIP of
      keyframes plus a contact sheet, entirely client-side: the source video
@@ -102,6 +109,46 @@ export function extendChoices(expiresAt, allowed = EXPIRY_PRESETS, now = Date.no
   if(!(expiresAt > now)) return [];
   const remainMin = Math.ceil((expiresAt - now) / 60000);
   return allowed.filter(min => min > remainMin);
+}
+
+/* ── text-paste lane ──────────────────────────────────────────────────
+   The same share pipeline also accepts a plain-text snippet instead of a
+   file (a `text` form field instead of a `file` part on the site's
+   upload endpoint). The stored object is identical to a file share
+   except it is marked kind:'paste' and its public URL renders as a
+   read-only viewer page (/p/<id>) with a raw text/plain twin
+   (/p/<id>.txt) for scripts and AI agents — never a forced download,
+   never HTML-interpreted (entity-escaped into a text node, nonce CSP
+   with default-src 'none' on the viewer, nosniff on the raw view).
+
+   Pastes use ONE flat byte cap for every account — this is a snippet
+   lane; bigger text travels the file lane as a .txt upload. Lifetimes,
+   extends, rate limits and the anti-enumeration ban ledger are the same
+   machinery as file shares. */
+export const PASTE_MAX_BYTES = 1024 * 1024;
+
+/* UTF-8 size of a candidate paste — the cap is on encoded bytes, not
+   code units, so multi-byte scripts are counted honestly. */
+export function pasteBytesOf(text){
+  return new TextEncoder().encode(String(text)).byteLength;
+}
+
+/* Display name for a paste row: pastes have no filename, so the first
+   non-empty line stands in (whitespace collapsed, capped at 48 chars).
+   Returns '' when the text has no usable line — the caller supplies its
+   own localized fallback label. */
+export function pasteDisplayName(text){
+  const line = ((String(text).match(/[^\s][^\n]*/) || [''])[0] || '').trim().replace(/\s+/g, ' ');
+  return line.length > 48 ? line.slice(0, 48) + '…' : line;
+}
+
+/* Courtesy preflight for the paste lane — mirror of preflight() above.
+   The server re-checks the real cap; this only skips pointless work. */
+export function pastePreflight(text, maxBytes = PASTE_MAX_BYTES){
+  if(typeof text !== 'string' || text.trim() === '') return { ok: false, error: 'empty' };
+  const bytes = pasteBytesOf(text);
+  if(bytes > maxBytes) return { ok: false, error: 'too_large', bytes };
+  return { ok: true, bytes };
 }
 
 /* ── courtesy preflight — the checks the page runs before spending an

@@ -1,21 +1,23 @@
-# File Sharing — upload client
+# Sharing — upload client
 
-Batch-upload orchestration and the video → keyframes pipeline behind the
-File Sharing tool on [subnsub.com](https://subnsub.com) (drop a file, get a
-short-lived link; also the standalone `/link` page). Published so the
-client-side claims are auditable: what the page checks before it spends an
-upload, how the concurrent batch queue works, how link lifetimes are
-modelled — and that the video splitter runs entirely in the browser: the
-source video never leaves the device, only the packed ZIP of frames is
-uploaded.
+Batch-upload orchestration, the text-paste lane, and the video → keyframes
+pipeline behind the Sharing tool on [subnsub.com](https://subnsub.com)
+(drop a file — or paste text — and get a short-lived link; also the
+standalone `/link` page). Published so the client-side claims are
+auditable: what the page checks before it spends an upload, how the
+concurrent batch queue works, how link lifetimes are modelled — and that
+the video splitter runs entirely in the browser: the source video never
+leaves the device, only the packed ZIP of frames is uploaded.
 
 ## Files
 
 - [`link-upload.js`](link-upload.js) — the module: `uploadBatch()`,
   `preflight()`, the lifetime model (`EXPIRY_PRESETS`,
-  `sanitizeExpiryMinutes()`, `extendChoices()`), `md5Hex()`/`md5OfBlob()`,
-  and the video half (`videoToFramesZip()`, `extractKeyframeTimes()`,
-  `captureVideoFrame()`, `buildContactSheet()`, `buildZip()`)
+  `sanitizeExpiryMinutes()`, `extendChoices()`), the text-paste lane
+  (`pasteBytesOf()`, `pasteDisplayName()`, `pastePreflight()`),
+  `md5Hex()`/`md5OfBlob()`, and the video half (`videoToFramesZip()`,
+  `extractKeyframeTimes()`, `captureVideoFrame()`, `buildContactSheet()`,
+  `buildZip()`)
 - [`demo.html`](demo.html) — minimal standalone page. **Its uploader is an
   injected fake** (a timer that ticks progress and mints an
   `example.invalid` URL) so the queue/concurrency/progress logic can be
@@ -101,12 +103,19 @@ for every limit below — the module's caps are courtesy preflights only, and
 a forged oversize/over-quota request is rejected server-side regardless.
 
 `POST /api/upload` — `multipart/form-data`
-- `file` — the file
+- `file` — the file, **or** `text` — a plain-text snippet (exactly one of
+  the two; sending both is rejected)
 - `expiresInMinutes` (optional) — requested lifetime; omitted → the
   server applies its default
 
 Success (2xx) JSON, fields the page consumes:
 `{ id, url, name, size, type, expiresAt }` (`expiresAt` = ms epoch).
+A text paste additionally carries `kind: 'paste'` and `raw`, and its `url`
+is a `/p/<id>` viewer page — a read-only, entity-escaped rendering behind a
+nonce CSP — whose raw text/plain twin lives at `/p/<id>.txt` (that's the
+URL the agent-prompt row variant points at). Pastes use one flat byte cap
+for every account (`PASTE_MAX_BYTES` is the courtesy mirror); bigger text
+belongs in the file lane as a `.txt` upload.
 
 Failure JSON: `{ error }` — a deployment-defined code (`too_large`,
 `bad_expiry`, `bad_request`, …). The module surfaces the code verbatim
