@@ -1,7 +1,8 @@
 /* File-share upload client — batch orchestration, the link-lifetime model,
-   and the video → keyframes ZIP pipeline. Logic of the Link tool on
-   subnsub.com (drop a file, get a short-lived link), kept in lockstep with
-   the in-page version.
+   and the video → keyframes ZIP pipeline. Logic of the Markup Relay tool
+   on subnsub.com (drop a file for a short-lived link, or paste text for
+   one that can sit there far longer), kept in lockstep with the in-page
+   version. The directory name `link` is the tool's unchanged internal id.
 
    Upload half (environment-free):
      uploadBatch() trims the batch to maxBatch, then runs a small worker
@@ -25,19 +26,28 @@
      tier; here they are plain options.
 
    Lifetime model:
-     Link lifetimes come from a fixed preset list (EXPIRY_PRESETS, in
-     minutes). sanitizeExpiryMinutes() admits only an exact integer that is
-     on the list — never a silently-invented in-between — and
+     Lifetimes come from fixed preset lists (in minutes), one per lane: a
+     file share is a transfer and tops out at FILE_MAX_MINUTES, while a
+     paste is a pastebin entry and keeps the short presets plus the long
+     ones that lane wants — so PASTE_EXPIRY_PRESETS is a superset of
+     EXPIRY_PRESETS and expiryPresets(kind) picks the right one.
+     sanitizeExpiryMinutes() admits only an exact integer that is on the
+     lane's list — never a silently-invented in-between — and
      extendChoices() returns the presets that would actually lengthen a
      still-live link. expiresInMinutes: null omits the field entirely so
-     the server applies its own default for the session.
+     the server applies its own default for the session; a value that is
+     valid for pastes but not for files is sent as null rather than
+     forwarded, since the file lane would only reject it.
 
    Text-paste lane:
      The same pipeline accepts a plain-text snippet instead of a file;
      pasteBytesOf() / pasteDisplayName() / pastePreflight() are the pure
      halves (honest UTF-8 byte counting, first-line display name, the
-     courtesy cap check). See the README for the wire shape and how the
-     /p/<id> viewer + /p/<id>.txt raw twin serve the result.
+     courtesy cap check). A paste can also be taken down before it
+     expires — canDeletePaste() is the client-side eligibility rule, and
+     because a paste can run for a year that undo matters in a way it does
+     not for a short-lived file. See the README for the wire shape and how
+     the /p/<id> viewer + /p/<id>.txt raw twin serve the result.
 
    Video half (browser-only — <video> and <canvas> are the whole point):
      videoToFramesZip() turns a video file into a store-only ZIP of
@@ -86,15 +96,35 @@ export function isVideoFile(file){
 /* ── link-lifetime model ──
    The lifetime picker is a fixed chip set; a stored or requested value
    that is not on the list must fall back to a caller-chosen default —
-   never a silently-invented in-between. On subnsub.com which presets are
-   offered and what the no-choice default is are account policy applied
-   server-side, not module logic, and the server re-validates every
-   request regardless. */
+   never a silently-invented in-between. On subnsub.com which presets a
+   given session may pick and what the no-choice default is are account
+   policy applied server-side, not module logic, and the server
+   re-validates every request regardless. */
 export const EXPIRY_PRESETS = [5, 10, 15, 30, 60, 120, 180]; /* minutes */
+
+/* Longest lifetime a FILE share may carry — the ceiling a paste-only
+   selection falls back to when the composer closes, and the reason a
+   paste-lane value is never forwarded to a file upload. */
+export const FILE_MAX_MINUTES = 180;
+
+/* Paste-only presets: a day, a week, a month, a year. A paste is a
+   pastebin entry rather than a transfer, so it outlives a file share by
+   orders of magnitude; the short presets stay available to it. */
+export const PASTE_ONLY_PRESETS = [1440, 10080, 43200, 525600];
+export const PASTE_EXPIRY_PRESETS = EXPIRY_PRESETS.concat(PASTE_ONLY_PRESETS);
+
+/* The allowed list for a lane. 'paste' gets the superset; anything else
+   is a file share. */
+export function expiryPresets(kind){
+  return kind === 'paste' ? PASTE_EXPIRY_PRESETS : EXPIRY_PRESETS;
+}
 
 /* Exact integer that is on the allowed list, or null. Exact-integer
    only — a tampered '120abc' or '5.9' must not slip past as a valid
-   preset the way parseInt alone would coerce it. */
+   preset the way parseInt alone would coerce it. Pass the lane's list
+   (expiryPresets('paste')) when sanitizing a paste lifetime: a stored
+   '1 week' read back on the file lane must fall through to null so the
+   request omits the field instead of earning a rejection. */
 export function sanitizeExpiryMinutes(raw, allowed = EXPIRY_PRESETS){
   const v = /^\d+$/.test(raw) ? parseInt(raw, 10) : NaN;
   return allowed.includes(v) ? v : null;
@@ -122,9 +152,18 @@ export function extendChoices(expiresAt, allowed = EXPIRY_PRESETS, now = Date.no
    with default-src 'none' on the viewer, nosniff on the raw view).
 
    Pastes use ONE flat byte cap for every account — this is a snippet
-   lane; bigger text travels the file lane as a .txt upload. Lifetimes,
-   extends, rate limits and the anti-enumeration ban ledger are the same
-   machinery as file shares. */
+   lane; bigger text travels the file lane as a .txt upload. Extends,
+   rate limits and the anti-enumeration ban ledger are the same machinery
+   as file shares; lifetimes are the same machinery over a longer preset
+   list (PASTE_EXPIRY_PRESETS).
+
+   A stored paste record carries, beyond the fields a file share has:
+   kind:'paste'; an optional `lang` hint chosen at create time (the
+   viewer's syntax label); and `deleteToken` — the capability an
+   anonymous author is handed once, in the create response. That token is
+   the ONLY proof an anonymous paste has: a client that drops it forfeits
+   early deletion for good, so anything persisting the record must carry
+   it through. */
 export const PASTE_MAX_BYTES = 1024 * 1024;
 
 /* UTF-8 size of a candidate paste — the cap is on encoded bytes, not
@@ -149,6 +188,22 @@ export function pastePreflight(text, maxBytes = PASTE_MAX_BYTES){
   const bytes = pasteBytesOf(text);
   if(bytes > maxBytes) return { ok: false, error: 'too_large', bytes };
   return { ok: true, bytes };
+}
+
+/* Should the page offer "delete" on this paste row? Two proofs count:
+   the capability token from the create response (`deleteToken`, kept as
+   `del` in a persisted record), or a signed-in viewer — the server then
+   checks that viewer really is the recorded author, which the client
+   cannot know. Files are excluded: they are short enough that waiting
+   one out is its own undo. An already-expired record gets nothing —
+   there is nothing left to take down. Offering the control is all this
+   decides; the delete request is authorized server-side regardless. */
+export function canDeletePaste(record, opts = {}){
+  const r = record || {};
+  if(r.kind !== 'paste' || !r.id) return false;
+  if(!(r.del || r.deleteToken) && !opts.signedIn) return false;
+  const now = opts.now != null ? opts.now : Date.now();
+  return r.expiresAt == null || r.expiresAt > now;
 }
 
 /* ── courtesy preflight — the checks the page runs before spending an

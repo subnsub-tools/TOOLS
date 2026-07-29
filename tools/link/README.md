@@ -2,9 +2,10 @@
 
 Batch-upload orchestration, the text-paste lane, and the video → keyframes
 pipeline behind the Markup Relay tool on [subnsub.com](https://subnsub.com)
-(drop a file — or paste text — and get a short-lived link; also the
-standalone `/relay` page — the directory name `link` is the tool's
-unchanged internal id). Published so the client-side claims are
+(drop a file for a short-lived link, or paste text for one that can sit
+there far longer; also the standalone `/relay` page — the directory name
+`link` is the tool's unchanged internal id). Published so the client-side
+claims are
 auditable: what the page checks before it spends an upload, how the
 concurrent batch queue works, how link lifetimes are modelled — and that
 the video splitter runs entirely in the browser: the source video never
@@ -14,11 +15,12 @@ leaves the device, only the packed ZIP of frames is uploaded.
 
 - [`link-upload.js`](link-upload.js) — the module: `uploadBatch()`,
   `preflight()`, the lifetime model (`EXPIRY_PRESETS`,
+  `PASTE_EXPIRY_PRESETS`, `FILE_MAX_MINUTES`, `expiryPresets()`,
   `sanitizeExpiryMinutes()`, `extendChoices()`), the text-paste lane
-  (`pasteBytesOf()`, `pasteDisplayName()`, `pastePreflight()`),
-  `md5Hex()`/`md5OfBlob()`, and the video half (`videoToFramesZip()`,
-  `extractKeyframeTimes()`, `captureVideoFrame()`, `buildContactSheet()`,
-  `buildZip()`)
+  (`pasteBytesOf()`, `pasteDisplayName()`, `pastePreflight()`,
+  `canDeletePaste()`), `md5Hex()`/`md5OfBlob()`, and the video half
+  (`videoToFramesZip()`, `extractKeyframeTimes()`, `captureVideoFrame()`,
+  `buildContactSheet()`, `buildZip()`)
 - [`demo.html`](demo.html) — minimal standalone page. **Its uploader is an
   injected fake** (a timer that ticks progress and mints an
   `example.invalid` URL) so the queue/concurrency/progress logic can be
@@ -108,15 +110,22 @@ a forged oversize/over-quota request is rejected server-side regardless.
   the two; sending both is rejected)
 - `expiresInMinutes` (optional) — requested lifetime; omitted → the
   server applies its default
+- `lang` (optional, paste only) — syntax label for the viewer page
 
 Success (2xx) JSON, fields the page consumes:
 `{ id, url, name, size, type, expiresAt }` (`expiresAt` = ms epoch).
-A text paste additionally carries `kind: 'paste'` and `raw`, and its `url`
-is a `/p/<id>` viewer page — a read-only, entity-escaped rendering behind a
-nonce CSP — whose raw text/plain twin lives at `/p/<id>.txt` (that's the
-URL the agent-prompt row variant points at). Pastes use one flat byte cap
-for every account (`PASTE_MAX_BYTES` is the courtesy mirror); bigger text
-belongs in the file lane as a `.txt` upload.
+A text paste additionally carries `kind: 'paste'`, `raw`, the `lang` it was
+created with, and `deleteToken`; its `url` is a `/p/<id>` viewer page — a
+read-only, entity-escaped rendering behind a nonce CSP — whose raw
+text/plain twin lives at `/p/<id>.txt` (that's the URL the agent-prompt row
+variant points at). Pastes use one flat byte cap for every account
+(`PASTE_MAX_BYTES` is the courtesy mirror); bigger text belongs in the file
+lane as a `.txt` upload.
+
+`deleteToken` is handed over exactly once, in that response. For an
+anonymous paste it is the only proof of authorship there will ever be, so
+a client that persists the record must persist the token with it —
+dropping it forfeits early deletion permanently.
 
 Failure JSON: `{ error }` — a deployment-defined code (`too_large`,
 `bad_expiry`, `bad_request`, …). The module surfaces the code verbatim
@@ -128,15 +137,38 @@ what limits trigger them are server policy, not module contract.
 `extendChoices()` mirrors the client rule that only presets longer than the
 remaining time are offered.
 
+`DELETE /api/paste?id=<id>` — takes a paste down before its expiry.
+Authorization is either the capability header `x-paste-token:
+<deleteToken>` or the session of the recorded author, so an anonymous
+author keeps the ability to undo a mistaken paste; only the token's
+SHA-256 is stored server-side. A `404` means the paste is already gone
+(expired, or deleted from another device) and the page treats it the same
+as a success. `canDeletePaste()` is the client-side half — whether to offer
+the control at all — and decides nothing about whether the request is
+honoured.
+
 ## Caps, lifetimes, and configuration
 
 The module takes a single `maxBytes`/`maxBatch` pair and a preset list. On
 subnsub.com those are configured per account and enforced server-side —
 deliberately not module logic — which is why `expiresInMinutes: null`
-omits the field and lets the server apply its default. One piece of page
-wiring worth noting: on site, a video over the size cap is auto-routed
-into `videoToFramesZip()` instead of erroring — that routing lives above
-this module.
+omits the field and lets the server apply its default.
+
+Lifetimes are per lane. A file share is a transfer: its presets stop at
+`FILE_MAX_MINUTES`. A paste is a pastebin entry that people come back to,
+so `PASTE_EXPIRY_PRESETS` keeps those presets and adds a day, a week, a
+month and a year. Two rules follow, and both live in the client because
+the alternative is a guaranteed rejection round-trip: sanitize a stored
+lifetime against the lane it is about to be used on
+(`expiryPresets('paste')` vs the default file list), and send `null`
+rather than forward a paste-only value to a file upload — reachable
+whenever a file lands while the text composer is open. Which of those
+presets a given session may actually pick, and what it gets when it picks
+nothing, are account policy the server owns.
+
+One piece of page wiring worth noting: on site, a video over the size cap
+is auto-routed into `videoToFramesZip()` instead of erroring — that
+routing lives above this module.
 
 ## How keyframes are picked
 
