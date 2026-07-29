@@ -35,9 +35,15 @@
      lane's list — never a silently-invented in-between — and
      extendChoices() returns the presets that would actually lengthen a
      still-live link. expiresInMinutes: null omits the field entirely so
-     the server applies its own default for the session; a value that is
-     valid for pastes but not for files is sent as null rather than
-     forwarded, since the file lane would only reject it.
+     the server applies its own default for the session.
+
+     Both are lane-aware only because the CALLER hands them the lane's
+     list: uploadBatch() forwards whatever expiresInMinutes it is given,
+     by design — a caller with its own preset list must stay able to use
+     one. So a page that shares one lifetime control between the two
+     lanes has to re-sanitize before it uploads a file, or a paste-only
+     value like a week would travel to the file lane and earn a rejection
+     it could have avoided locally.
 
    Text-paste lane:
      The same pipeline accepts a plain-text snippet instead of a file;
@@ -103,9 +109,10 @@ export function isVideoFile(file){
 export const EXPIRY_PRESETS = [5, 10, 15, 30, 60, 120, 180]; /* minutes */
 
 /* Longest lifetime a FILE share may carry — the ceiling a paste-only
-   selection falls back to when the composer closes, and the reason a
-   paste-lane value is never forwarded to a file upload. */
-export const FILE_MAX_MINUTES = 180;
+   selection falls back to when the composer closes. Derived, not a second
+   copy of 180: the file lane's ceiling IS its longest preset, and a
+   hand-written twin would drift silently the first time the list moves. */
+export const FILE_MAX_MINUTES = Math.max(...EXPIRY_PRESETS);
 
 /* Paste-only presets: a day, a week, a month, a year. A paste is a
    pastebin entry rather than a transfer, so it outlives a file share by
@@ -198,11 +205,12 @@ export function pastePreflight(text, maxBytes = PASTE_MAX_BYTES){
    one out is its own undo. An already-expired record gets nothing —
    there is nothing left to take down. Offering the control is all this
    decides; the delete request is authorized server-side regardless. */
-export function canDeletePaste(record, opts = {}){
+export function canDeletePaste(record, opts){
   const r = record || {};
+  const o = opts || {};   /* an explicit null must behave like no options */
   if(r.kind !== 'paste' || !r.id) return false;
-  if(!(r.del || r.deleteToken) && !opts.signedIn) return false;
-  const now = opts.now != null ? opts.now : Date.now();
+  if(!(r.del || r.deleteToken) && !o.signedIn) return false;
+  const now = o.now != null ? o.now : Date.now();
   return r.expiresAt == null || r.expiresAt > now;
 }
 

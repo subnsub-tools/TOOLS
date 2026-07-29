@@ -133,9 +133,13 @@ through `onError` and attaches no meaning to it; which codes exist and
 what limits trigger them are server policy, not module contract.
 
 `POST /api/extend` — JSON `{ id, expiresInMinutes }` →
-`{ ok: true, expiresAt }` or `{ error }`. Each file can be extended once;
-`extendChoices()` mirrors the client rule that only presets longer than the
-remaining time are offered.
+`{ ok: true, expiresAt }` or `{ error }`. Any share — file or paste — can
+be extended once, and an expired one not at all. How far it may be
+extended depends on which lane it is in, so a paste can be pushed well
+past a file's ceiling; the server re-validates against the lane either
+way. `extendChoices()` is the client half of that menu: pass the lane's
+list (`expiryPresets('paste')` for a paste) and it drops everything at or
+under the remaining time, since offering those would extend nothing.
 
 `DELETE /api/paste?id=<id>` — takes a paste down before its expiry.
 Authorization is either the capability header `x-paste-token:
@@ -157,14 +161,17 @@ omits the field and lets the server apply its default.
 Lifetimes are per lane. A file share is a transfer: its presets stop at
 `FILE_MAX_MINUTES`. A paste is a pastebin entry that people come back to,
 so `PASTE_EXPIRY_PRESETS` keeps those presets and adds a day, a week, a
-month and a year. Two rules follow, and both live in the client because
-the alternative is a guaranteed rejection round-trip: sanitize a stored
-lifetime against the lane it is about to be used on
-(`expiryPresets('paste')` vs the default file list), and send `null`
-rather than forward a paste-only value to a file upload — reachable
-whenever a file lands while the text composer is open. Which of those
+month and a year. `uploadBatch()` does not police that split — it forwards
+whatever `expiresInMinutes` it is handed, so a caller with its own preset
+list keeps working. The lane rule therefore lives one level up, in the
+page: sanitize a stored lifetime against the lane it is about to be used
+on (`expiryPresets('paste')` vs the default file list) and let it fall
+through to `null` when it does not belong there. A page that shares one
+lifetime control between both lanes — a file landing while the text
+composer is open — otherwise ships a paste-only value to the file lane
+and collects a rejection it could have avoided locally. Which of those
 presets a given session may actually pick, and what it gets when it picks
-nothing, are account policy the server owns.
+nothing, are server-side policy.
 
 One piece of page wiring worth noting: on site, a video over the size cap
 is auto-routed into `videoToFramesZip()` instead of erroring — that
