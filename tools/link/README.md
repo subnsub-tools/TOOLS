@@ -1,9 +1,10 @@
-# Sharing — upload client
+# Markup Relay — upload client
 
 Batch-upload orchestration, the text-paste lane, and the video → keyframes
-pipeline behind the Sharing tool on [subnsub.com](https://subnsub.com)
+pipeline behind the Markup Relay tool on [subnsub.com](https://subnsub.com)
 (drop a file — or paste text — and get a short-lived link; also the
-standalone `/link` page). Published so the client-side claims are
+standalone `/relay` page — the directory name `link` is the tool's
+unchanged internal id). Published so the client-side claims are
 auditable: what the page checks before it spends an upload, how the
 concurrent batch queue works, how link lifetimes are modelled — and that
 the video splitter runs entirely in the browser: the source video never
