@@ -1,4 +1,4 @@
-/* UUID v4 generation + inspection. Core logic of the UUID Generator tab
+/* UUID v4 generation + inspection. Logic of the UUID Generator tab
    on subnsub.com, kept in lockstep with the in-page version.
 
    Sixteen bytes from crypto.getRandomValues (a CSPRNG — Math.random is

@@ -1,7 +1,7 @@
 # HTML Entities
 
 Encode special characters to HTML entities and decode any entity back —
-the core logic of the HTML tab on [subnsub.com](https://subnsub.com),
+the logic of the HTML tab on [subnsub.com](https://subnsub.com),
 published so the transformation the site runs on your markup is
 auditable.
 

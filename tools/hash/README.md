@@ -1,7 +1,7 @@
 # Hash
 
 SHA-1 / SHA-256 / SHA-512 digests of text or files, computed entirely in the
-browser via WebCrypto. This is the core logic of the
+browser via WebCrypto. This is the logic of the
 [Hash tab on subnsub.com](https://subnsub.com), published so the "your input
 is hashed locally, never uploaded" claim is auditable.
 

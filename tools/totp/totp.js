@@ -1,4 +1,4 @@
-/* TOTP / HOTP — core logic of the TOTP / HOTP Generator tab on
+/* TOTP / HOTP — logic of the TOTP / HOTP Generator tab on
    subnsub.com, kept in lockstep with the in-page version.
 
    RFC 4226 HOTP with RFC 6238 time-based counters: the code is a dynamic

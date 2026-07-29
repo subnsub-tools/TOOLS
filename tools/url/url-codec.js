@@ -1,4 +1,4 @@
-/* URL percent-encoding, both directions. Core logic of the URL
+/* URL percent-encoding, both directions. Logic of the URL
    Encoder / Decoder tab on subnsub.com, kept in lockstep with the
    in-page version.
 

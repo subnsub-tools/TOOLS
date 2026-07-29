@@ -1,4 +1,4 @@
-/* Countdown / stopwatch / clock engines — the timekeeping core of the
+/* Countdown / stopwatch / clock engines — the timekeeping engine of the
    Timer tab on subnsub.com, kept in lockstep with the in-page version.
    (That tab's other widgets — pomodoro, alarms, world clock, day counter —
    are UI built around these same primitives and stay on the site.)

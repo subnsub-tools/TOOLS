@@ -2,7 +2,7 @@
 
 Send files device-to-device over a direct WebRTC data channel — discovery
 hands the devices to each other, then the bytes never touch a server. This is
-the core engine of the [Transfer tool on subnsub.com](https://subnsub.com)
+the engine of the [Transfer tool on subnsub.com](https://subnsub.com)
 (`/lan`), published so the "your files go straight to the other device"
 claim is auditable: the chunked-transfer engine, backpressure, resume and
 trust logic here are kept in lockstep with the in-page version.

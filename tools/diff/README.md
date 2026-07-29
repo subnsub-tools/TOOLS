@@ -1,6 +1,6 @@
 # Diff
 
-Line-by-line text comparison, computed locally. This is the core logic of the
+Line-by-line text comparison, computed locally. This is the logic of the
 [Diff tab on subnsub.com](https://subnsub.com), published so the exact
 algorithm behind the highlighted view is documented and reusable.
 

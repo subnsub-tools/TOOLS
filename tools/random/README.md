@@ -1,7 +1,7 @@
 # Random
 
 Uniform random numbers — integers, fixed-precision decimals, no-duplicate
-draws — from `crypto.getRandomValues`. This is the core logic of the
+draws — from `crypto.getRandomValues`. This is the logic of the
 [Random tab on subnsub.com](https://subnsub.com), published so the
 uniformity claims are auditable: the site's results card, stats line and
 histogram are a display layer over exactly these functions.

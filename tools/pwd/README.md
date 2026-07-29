@@ -1,7 +1,7 @@
 # Password
 
 Cryptographically random password generation, entirely in the browser. This
-is the core logic of the [Password tab on subnsub.com](https://subnsub.com),
+is the logic of the [Password tab on subnsub.com](https://subnsub.com),
 published so the uniformity claim — every character an unbiased draw from
 the chosen alphabet — is auditable.
 

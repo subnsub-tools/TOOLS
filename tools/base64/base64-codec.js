@@ -1,4 +1,4 @@
-/* UTF-8-safe Base64. Core logic of the Base64 tab on subnsub.com, kept
+/* UTF-8-safe Base64. Logic of the Base64 tab on subnsub.com, kept
    in lockstep with the in-page version.
 
    btoa/atob only speak Latin-1, so both directions cross the classic

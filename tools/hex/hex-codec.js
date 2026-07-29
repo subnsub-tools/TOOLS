@@ -1,4 +1,4 @@
-/* Text ↔ hexadecimal. Core logic of the Hex Converter tab on
+/* Text ↔ hexadecimal. Logic of the Hex Converter tab on
    subnsub.com, kept in lockstep with the in-page version.
 
    Encoding is UTF-8 (TextEncoder): one zero-padded lowercase pair per

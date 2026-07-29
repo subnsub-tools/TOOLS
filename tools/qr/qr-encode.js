@@ -1,4 +1,4 @@
-/* Byte-mode QR encoder → SVG string. Core logic of the QR Code tool on
+/* Byte-mode QR encoder → SVG string. Logic of the QR Code tool on
    subnsub.com (the QR tab / standalone /qr page), kept in lockstep with
    the in-page version; the LAN pairing widget renders its codes through
    the same encoder.

@@ -1,6 +1,6 @@
 # Regex Tester
 
-Live regular-expression evaluation — the core logic of the Regex tab on
+Live regular-expression evaluation — the logic of the Regex tab on
 [subnsub.com](https://subnsub.com), published so what runs against your
 test text is auditable: the platform's own `RegExp`, nothing rewritten.
 

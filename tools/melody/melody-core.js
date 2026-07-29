@@ -1,4 +1,4 @@
-/* Melody Catcher engine — core logic of the Melody Catcher tab on
+/* Melody Catcher engine — logic of the Melody Catcher tab on
    subnsub.com, kept in lockstep with the in-page version.
 
    Audition equal-temperament pitches, keep the ones that match the tune

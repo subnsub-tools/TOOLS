@@ -1,7 +1,7 @@
 # Currency Converter (FX)
 
 USD-base cross-rate math, tolerant amount parsing, adaptive number formatting
-and the saved-pairs model — the core logic of the Currency tab on
+and the saved-pairs model — the logic of the Currency tab on
 [subnsub.com](https://subnsub.com), published so the "conversion runs entirely
 in your browser" claim is auditable. The page only ever downloads a rate
 table; the amounts you type are never sent anywhere.

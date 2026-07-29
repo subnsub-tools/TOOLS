@@ -1,4 +1,4 @@
-/* Clipboard interop layer — core logic of the Clipboard tab on subnsub.com,
+/* Clipboard interop layer — logic of the Clipboard tab on subnsub.com,
    kept in lockstep with the in-page version.
 
    The tab has two faces: saved text snippets you can re-copy with one

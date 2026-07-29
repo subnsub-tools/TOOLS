@@ -1,7 +1,7 @@
 # JWT Decoder & Verifier
 
 Decode a JWT and verify its signature locally with WebCrypto — no token,
-secret or key ever leaves the browser. This is the core logic of the
+secret or key ever leaves the browser. This is the logic of the
 [JWT Decoder & Verifier tab on subnsub.com](https://subnsub.com), published
 so the "verified locally" claim is auditable.
 

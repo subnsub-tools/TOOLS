@@ -1,5 +1,5 @@
 /* File-share upload client — batch orchestration, the link-lifetime model,
-   and the video → keyframes ZIP pipeline. Core logic of the Link tool on
+   and the video → keyframes ZIP pipeline. Logic of the Link tool on
    subnsub.com (drop a file, get a short-lived link), kept in lockstep with
    the in-page version.
 

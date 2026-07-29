@@ -1,4 +1,4 @@
-/* Arbitrary-size integer base conversion. Core logic of the Number Base
+/* Arbitrary-size integer base conversion. Logic of the Number Base
    Converter tab on subnsub.com, kept in lockstep with the in-page
    version.
 

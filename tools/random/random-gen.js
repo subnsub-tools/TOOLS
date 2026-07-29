@@ -1,4 +1,4 @@
-/* Random number generation. Core logic of the Random tool on subnsub.com,
+/* Random number generation. Logic of the Random tool on subnsub.com,
    kept in lockstep with the in-page version — the site adds a results
    card, stats line and histogram on top of these functions; none of that
    affects the draws.

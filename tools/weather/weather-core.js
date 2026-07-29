@@ -1,4 +1,4 @@
-/* Weather — core logic of the Weather tab on subnsub.com, kept in
+/* Weather — logic of the Weather tab on subnsub.com, kept in
    lockstep with the in-page version and the same-origin /api/weather
    proxy it renders from.
 

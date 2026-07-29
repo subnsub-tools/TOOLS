@@ -1,4 +1,4 @@
-/* HTML entity encode / decode. Core logic of the HTML Entities tab on
+/* HTML entity encode / decode. Logic of the HTML Entities tab on
    subnsub.com, kept in lockstep with the in-page version.
 
    Encoding has two levels, matching the tab's toggle:

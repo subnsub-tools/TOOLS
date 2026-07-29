@@ -1,4 +1,4 @@
-/* Stock quotes — core data layer of the Stocks tab on subnsub.com, kept in
+/* Stock quotes — data layer of the Stocks tab on subnsub.com, kept in
    lockstep with the in-page version.
 
    The page fetches two same-origin JSON documents (/api/stocks for the

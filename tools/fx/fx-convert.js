@@ -1,4 +1,4 @@
-/* Currency converter — core math of the Currency (FX) tab on subnsub.com,
+/* Currency converter — math of the Currency (FX) tab on subnsub.com,
    kept in lockstep with the in-page version.
 
    Model: one USD-base table drives every pair. The rate document maps

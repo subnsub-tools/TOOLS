@@ -1,6 +1,6 @@
 # Hex Converter
 
-Text to hex bytes and back, entirely in the browser — the core logic of
+Text to hex bytes and back, entirely in the browser — the logic of
 the Hex tab on [subnsub.com](https://subnsub.com), published so the
 conversion the site runs on your text is auditable.
 

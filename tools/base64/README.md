@@ -1,7 +1,7 @@
 # Base64
 
 UTF-8-safe Base64 encoding and decoding, entirely in the browser — the
-core logic of the Base64 tab on [subnsub.com](https://subnsub.com),
+logic of the Base64 tab on [subnsub.com](https://subnsub.com),
 published so the conversion the site runs on your text is auditable.
 
 ## Files

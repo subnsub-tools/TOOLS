@@ -1,7 +1,7 @@
 # Color
 
 Parse a CSS color and read it back as HEX, RGB, HSL and OKLCH. This is the
-core logic of the [Color tab on subnsub.com](https://subnsub.com), published
+logic of the [Color tab on subnsub.com](https://subnsub.com), published
 so the exact parsing rules and rounding behaviour are documented and
 reusable.
 

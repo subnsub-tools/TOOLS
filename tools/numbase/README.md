@@ -1,7 +1,7 @@
 # Number Base Converter
 
 Binary / octal / decimal / hexadecimal conversion for integers of any
-size — the core logic of the Base tab on
+size — the logic of the Base tab on
 [subnsub.com](https://subnsub.com), published so the math the site runs
 on your numbers is auditable.
 

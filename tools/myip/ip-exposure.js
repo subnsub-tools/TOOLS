@@ -1,4 +1,4 @@
-/* WebRTC IP exposure probe. Core logic of the My IP tab on subnsub.com,
+/* WebRTC IP exposure probe. Logic of the My IP tab on subnsub.com,
    kept in lockstep with the in-page version.
 
    A throwaway RTCPeerConnection with one data channel is offered and its

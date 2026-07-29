@@ -1,4 +1,4 @@
-/* Speed test orchestration. Core logic of the Speed tab on subnsub.com,
+/* Speed test orchestration. Logic of the Speed tab on subnsub.com,
    kept in lockstep with the in-page version.
 
    The transfers themselves are driven by @cloudflare/speedtest (MIT), a

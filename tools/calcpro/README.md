@@ -2,7 +2,7 @@
 
 One box, Wolfram-style answers — exact fractions and huge integers, unit
 conversion, number bases, date maths and closed forms, fully offline.
-This is the core engine of the built-in **Calc Pro** tab on [subnsub.com](https://subnsub.com) and [200000.live](https://www.200000.live).
+This is the engine of the built-in **Calc Pro** tab on [subnsub.com](https://subnsub.com) and [200000.live](https://www.200000.live).
 
 ## Files
 

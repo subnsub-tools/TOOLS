@@ -1,4 +1,4 @@
-/* Color parsing and conversion. Core logic of the Color tool on
+/* Color parsing and conversion. Logic of the Color tool on
    subnsub.com, kept in lockstep with the in-page version.
 
    Canonical form is 8-bit sRGB ({r,g,b} in 0–255): every input parses to

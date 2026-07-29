@@ -1,4 +1,4 @@
-/* Unix timestamp ↔ date conversion. Core logic of the Unix Timestamp
+/* Unix timestamp ↔ date conversion. Logic of the Unix Timestamp
    tab on subnsub.com, kept in lockstep with the in-page version.
 
    Timestamps are epoch seconds (the Unix convention); the ×1000/÷1000

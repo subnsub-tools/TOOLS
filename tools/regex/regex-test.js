@@ -1,4 +1,4 @@
-/* Regex evaluation. Core logic of the Regex Tester tab on subnsub.com,
+/* Regex evaluation. Logic of the Regex Tester tab on subnsub.com,
    kept in lockstep with the in-page version.
 
    The engine is the platform's own RegExp, so patterns behave exactly

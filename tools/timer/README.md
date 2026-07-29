@@ -1,6 +1,6 @@
 # Timer / Stopwatch / Clock
 
-The timekeeping core of the [Timer tab on subnsub.com](https://subnsub.com) —
+The timekeeping engine of the [Timer tab on subnsub.com](https://subnsub.com) —
 countdown, stopwatch (with laps) and a 12/24-hour clock, published so the
 engines behind the widgets are auditable. Everything visual on that tab
 (the morphing pills, the superellipse progress ring, the minute wheel) is

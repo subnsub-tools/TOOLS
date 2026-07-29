@@ -1,7 +1,7 @@
 # Coin
 
 Fair coin flips — one bit of `crypto.getRandomValues` entropy per flip. This
-is the core logic of the [Coin tab on subnsub.com](https://subnsub.com),
+is the logic of the [Coin tab on subnsub.com](https://subnsub.com),
 published so the fairness claim is auditable: the site's 3D tumbling coin,
 custom face labels and stats board are presentation over exactly these
 functions, and the outcome is decided before the animation starts.

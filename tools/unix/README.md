@@ -1,6 +1,6 @@
 # Unix Timestamp
 
-Unix epoch seconds ↔ human-readable dates — the core logic of the Unix
+Unix epoch seconds ↔ human-readable dates — the logic of the Unix
 tab on [subnsub.com](https://subnsub.com), published so the conversion
 math and formatting the site applies are auditable.
 

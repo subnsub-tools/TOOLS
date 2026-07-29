@@ -2,7 +2,7 @@
 
 Generate QR codes from any text entirely in the browser — a from-scratch
 byte-mode ISO/IEC 18004 encoder that emits a plain SVG string. This is the
-core logic of the [QR Code tab on subnsub.com](https://subnsub.com) (and its
+logic of the [QR Code tab on subnsub.com](https://subnsub.com) (and its
 standalone `/qr` page), published so the "your text never leaves your device"
 claim is auditable; the site's LAN-pairing widget renders its codes through
 this same encoder.

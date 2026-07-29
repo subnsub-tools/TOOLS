@@ -1,7 +1,7 @@
 # Cron Expression
 
 Parse classic 5-field cron expressions into plain language and compute the
-next execution times, entirely client-side. This is the core logic of the
+next execution times, entirely client-side. This is the logic of the
 [Cron Expression tab on subnsub.com](https://subnsub.com), published so the
 schedule math the tool shows you is auditable.
 

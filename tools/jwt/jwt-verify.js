@@ -1,4 +1,4 @@
-/* JWT decode + local signature verification — core logic of the JWT
+/* JWT decode + local signature verification — logic of the JWT
    Decoder & Verifier tab on subnsub.com, kept in lockstep with the
    in-page version.
 

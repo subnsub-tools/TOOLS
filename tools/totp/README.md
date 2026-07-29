@@ -1,7 +1,7 @@
 # TOTP / HOTP
 
 One-time codes from a Base32 secret, computed entirely in the browser —
-RFC 4226 (HOTP) and RFC 6238 (TOTP) over WebCrypto HMAC. This is the core
+RFC 4226 (HOTP) and RFC 6238 (TOTP) over WebCrypto HMAC. This is the
 logic of the [TOTP / HOTP Generator tab on subnsub.com](https://subnsub.com),
 published so the "your secret never leaves your device" claim is auditable.
 

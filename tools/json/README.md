@@ -1,6 +1,6 @@
 # JSON Formatter
 
-Pretty-print, minify, or just validate JSON — the core logic of the JSON
+Pretty-print, minify, or just validate JSON — the logic of the JSON
 tab on [subnsub.com](https://subnsub.com), published so the parsing and
 the error reporting the site runs on your data are auditable.
 

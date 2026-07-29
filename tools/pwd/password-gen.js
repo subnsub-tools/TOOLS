@@ -1,4 +1,4 @@
-/* Password generation. Core logic of the Password tool on subnsub.com,
+/* Password generation. Logic of the Password tool on subnsub.com,
    kept in lockstep with the in-page version.
 
    Every character is drawn from crypto.getRandomValues through rejection

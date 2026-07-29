@@ -1,4 +1,4 @@
-/* Cron expression parser — core logic of the Cron Expression tab on
+/* Cron expression parser — logic of the Cron Expression tab on
    subnsub.com, kept in lockstep with the in-page version.
 
    Classic 5-field cron: minute hour day-of-month month day-of-week.

@@ -1,6 +1,6 @@
 # URL Encoder / Decoder
 
-URL percent-encoding, both directions — the core logic of the URL tab on
+URL percent-encoding, both directions — the logic of the URL tab on
 [subnsub.com](https://subnsub.com), published so it is plain what the
 tool does with your input: the platform's own functions, split into the
 two modes that actually differ.

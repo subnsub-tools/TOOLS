@@ -1,4 +1,4 @@
-/* Coin flip. Core logic of the Coin tool on subnsub.com, kept in lockstep
+/* Coin flip. Logic of the Coin tool on subnsub.com, kept in lockstep
    with the in-page version. This module is the fairness-relevant part —
    on site it is wrapped in a 3D tumbling coin, custom face labels and a
    stats board, none of which touch the outcome (the flip is decided

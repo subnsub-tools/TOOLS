@@ -1,4 +1,4 @@
-/* Line diff. Core logic of the Diff tool on subnsub.com, kept in lockstep
+/* Line diff. Logic of the Diff tool on subnsub.com, kept in lockstep
    with the in-page version.
 
    Classic O(m·n) longest-common-subsequence table over lines, backtracked

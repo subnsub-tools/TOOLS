@@ -1,4 +1,4 @@
-/* JSON format / minify / validate. Core logic of the JSON Formatter tab
+/* JSON format / minify / validate. Logic of the JSON Formatter tab
    on subnsub.com, kept in lockstep with the in-page version.
 
    JSON.parse is the validator — no hand-rolled grammar to drift out of

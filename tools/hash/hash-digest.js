@@ -1,4 +1,4 @@
-/* Multi-algorithm digest. Core logic of the Hash tool on subnsub.com,
+/* Multi-algorithm digest. Logic of the Hash tool on subnsub.com,
    kept in lockstep with the in-page version.
 
    Everything goes through WebCrypto's crypto.subtle.digest — there is no

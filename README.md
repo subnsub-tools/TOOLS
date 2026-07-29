@@ -1,6 +1,6 @@
-# Core Tools
+# Tools
 
-The core logic behind the built-in tools on
+The logic behind the built-in tools on
 [subnsub.com](https://subnsub.com) — every tool tab that ships with the
 site, published so the code that touches your data is auditable rather
 than something you have to take on faith.
@@ -44,7 +44,7 @@ about shapes:
 | [HTML](tools/html/) | `html-entities.js` | HTML entity encode/decode. |
 | [JSON](tools/json/) | `json-format.js` | JSON format / validate / minify. |
 | [YAML](tools/yaml/) | `yaml-convert.js` | YAML ↔ JSON, hand-rolled parser and emitter. |
-| [Regex](tools/regex/) | `regex-test.js` | Regex evaluation core — matches, positions, capture groups. |
+| [Regex](tools/regex/) | `regex-test.js` | Regex evaluation — matches, positions, capture groups. |
 | [Diff](tools/diff/) | `text-diff.js` | Plain-text diff. |
 | [JWT](tools/jwt/) | `jwt-verify.js` | JWT decode + WebCrypto signature verification. |
 | [Hash](tools/hash/) | `hash-digest.js` | WebCrypto digests over text and files. |
@@ -77,7 +77,7 @@ python3 -m http.server 8000
 
 ## What this repo is (and isn't)
 
-- **It is the auditable core**: parsers, crypto, converters, protocol
+- **It is the auditable logic**: parsers, crypto, converters, protocol
   engines, and the guards around them.
 - **It is not the site.** The UI shell, design system, i18n, accounts and
   server functions of subnsub.com are not part of this repository. The

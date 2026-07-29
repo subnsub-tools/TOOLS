@@ -1,7 +1,7 @@
 # Stock Quotes
 
 Quote-payload normalization, price/percent/market-cap formatting, the
-watchlist model and the price-history chart math — the core data layer of the
+watchlist model and the price-history chart math — the data layer of the
 Stocks tab on [subnsub.com](https://subnsub.com), published so what the tab
 does with market data is auditable: the browser talks only to the site's own
 origin, and every number shown is derived exactly as coded here.

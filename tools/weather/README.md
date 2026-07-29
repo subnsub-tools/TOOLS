@@ -1,7 +1,7 @@
-# Weather Core
+# Weather
 
 CJK-aware geocoding decisions, condition-code → icon mapping and forecast
-shaping — the data-plane core of the
+shaping — the data plane of the
 [Weather tab on subnsub.com](https://subnsub.com), published so the part
 that makes 东京 / 横浜 / 서울 searches actually work is auditable.
 

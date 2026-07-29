@@ -1,4 +1,4 @@
-/* YAML ↔ JSON — core logic of the YAML ↔ JSON tab on subnsub.com, kept in
+/* YAML ↔ JSON — logic of the YAML ↔ JSON tab on subnsub.com, kept in
    lockstep with the in-page version.
 
    A deliberately small, hand-rolled YAML subset — the shape of config

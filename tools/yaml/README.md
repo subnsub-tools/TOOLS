@@ -2,7 +2,7 @@
 
 Convert between YAML and JSON both ways with a small hand-rolled parser and
 emitter — no dependency, a few hundred lines you can actually read. This is
-the core logic of the [YAML ↔ JSON tab on subnsub.com](https://subnsub.com),
+the logic of the [YAML ↔ JSON tab on subnsub.com](https://subnsub.com),
 published so exactly what the converter does (and does not) support is
 auditable rather than guessed at.
 

@@ -1,7 +1,7 @@
 # UUID Generator
 
 RFC 4122 version-4 UUIDs from cryptographically random bytes, plus the
-inspector for pasted UUIDs — the core logic of the UUID tab on
+inspector for pasted UUIDs — the logic of the UUID tab on
 [subnsub.com](https://subnsub.com), published so the randomness claim
 ("crypto-random, generated on your device") is auditable.
 

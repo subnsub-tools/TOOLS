@@ -1,5 +1,5 @@
 /* LAN file transfer — direct device-to-device file transfer over WebRTC,
-   with pluggable discovery. Core engine of the Transfer tool on
+   with pluggable discovery. Engine of the Transfer tool on
    subnsub.com (/lan), kept in lockstep with the in-page version.
 
    Layers (mirroring the in-page tool):
