@@ -13,7 +13,7 @@ leaves the device, only the packed ZIP of frames is uploaded.
 
 ## Files
 
-- [`link-upload.js`](link-upload.js) — the module: `uploadBatch()`,
+- [`relay-upload.js`](relay-upload.js) — the module: `uploadBatch()`,
   `preflight()`, the lifetime model (`EXPIRY_PRESETS`,
   `PASTE_EXPIRY_PRESETS`, `FILE_MAX_MINUTES`, `expiryPresets()`,
   `sanitizeExpiryMinutes()`, `extendChoices()`), the text-paste lane
@@ -32,7 +32,7 @@ The module performs no network I/O. The transport is a caller-supplied
 function — resolve means stored, reject means failed:
 
 ```js
-import { uploadBatch, sanitizeExpiryMinutes } from './link-upload.js';
+import { uploadBatch, sanitizeExpiryMinutes } from './relay-upload.js';
 
 const { items, ignored } = await uploadBatch(fileList, {
   upload: myTransport,          // (file, {expiresInMinutes, onProgress}) => Promise<record>
@@ -87,7 +87,7 @@ function siteTransport(file, { expiresInMinutes, onProgress }) {
 Video → keyframes ZIP (browser only — it is `<video>` + `<canvas>` work):
 
 ```js
-import { videoToFramesZip } from './link-upload.js';
+import { videoToFramesZip } from './relay-upload.js';
 
 const out = await videoToFramesZip(videoFile, {
   maxBytes: 10 * 1024 * 1024,          // the packed ZIP is thinned to fit this

@@ -47,7 +47,7 @@ the video is never sent anywhere. Cap set to 15&nbsp;MB here.</p>
     uploadBatch, sanitizeExpiryMinutes, extendChoices,
     formatBytes, formatDuration, videoToFramesZip,
     CONCURRENCY, EXPIRY_PRESETS, PASTE_ONLY_PRESETS,
-  } from './link-upload.js';
+  } from './relay-upload.js';
 
   const $ = (id) => document.getElementById(id);
   $('presets').textContent = EXPIRY_PRESETS.join(' ');
