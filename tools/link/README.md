@@ -114,6 +114,18 @@ a forged oversize/over-quota request is rejected server-side regardless.
 
 Success (2xx) JSON, fields the page consumes:
 `{ id, url, name, size, type, expiresAt }` (`expiresAt` = ms epoch).
+
+`url` is the link to hand out, and its route depends on what the stored
+bytes turn out to be. A file whose first bytes decode as PNG, JPEG, GIF or
+WebP — sniffed server-side from the bytes, never from the upload's declared
+type or extension, so markup dressed as an image can never qualify — gets
+an `/i/<id>` URL that a deployment serves inline with its true image type,
+plus a `downloadUrl` (`/f/<id>`, the same object served as an attachment)
+for the human-facing "save this file" affordance. Everything else gets the
+`/f/<id>` URL alone and no `downloadUrl`. A client that shows one link
+should show `url`; the point of the split is that pasting the primary link
+into a browser or an image-reading agent yields pixels, not a download.
+
 A text paste additionally carries `kind: 'paste'`, `raw`, the `lang` it was
 created with, and `deleteToken`; its `url` is a `/p/<id>` viewer page — a
 read-only, entity-escaped rendering behind a nonce CSP — whose raw
