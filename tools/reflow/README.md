@@ -42,26 +42,38 @@ At every break the module decides what, if anything, replaces it:
 - **`'space'`** — always a space. Correct for Latin scripts and wrong in the
   middle of a Chinese sentence.
 - **`'none'`** — nothing at all.
-- **`'smart'`** — a space, *except* between two characters of a script that
-  does not separate words with one. `NO_SPACE_SCRIPT` covers Han (including
-  extension A and the compatibility block), kana, and the fullwidth / CJK
-  punctuation that tends to sit at a line edge.
+- **`'smart'`** — a space, *except* in three cases:
+  1. between two characters of a script that does not separate words with one
+     (`NO_SPACE_SCRIPT`: Han including the planes past the BMP, kana,
+     halfwidth kana, and the fullwidth / CJK punctuation that sits at a line
+     edge);
+  2. after a line-final connector — `well-` / `known` and folded URLs like
+     `https://…/` / `path` have to close up;
+  3. before punctuation that never takes a leading space (`,` `.` `;` `:`
+     `!` `?` `%` `)` `]` `}` `»` `”` `’`).
 
-Hangul is deliberately **not** in that set: Korean spaces its words the way
-Latin does, so a Korean line break wants the space and dropping it would be a
-real error — the counter-example that makes "CJK" the wrong shorthand here.
+Hangul is deliberately **not** in the no-space set: Korean spaces its words
+the way Latin does, so a Korean line break wants the space and dropping it
+would be a real error — the counter-example that makes "CJK" the wrong
+shorthand here.
 
 ## Model & boundaries
 
-- `\r\n`, a lone `\r`, and U+2028 / U+2029 are all normalised to `\n` first —
-  as far as a paste is concerned they are the same hard break.
-- Trailing horizontal whitespace (including U+00A0 and U+3000) comes off every
-  line before anything else. It is residue of the wrap being undone, and left
-  in place it would silently decide the `'smart'` test.
+- `\r\n`, a lone `\r` and U+2028 normalise to `\n`. U+2029 is a *paragraph*
+  separator, so it normalises to a blank line instead — collapsing it would
+  drop the very boundary `'para'` mode exists to keep.
+- Trailing horizontal whitespace comes off every line before anything else:
+  it is residue of the wrap being undone, and left in place it would silently
+  decide the `'smart'` test. The full Unicode set is matched (U+00A0, U+1680,
+  U+2000–U+200A, U+202F, U+205F, U+3000), because PDF text runs use more than
+  the ASCII space.
+- The two characters either side of a seam are read as whole code points, so
+  Han past the BMP classifies correctly rather than as half a surrogate pair.
 - Within a paragraph, the **first** line keeps its leading whitespace (an
   authored indent) and continuation lines lose theirs (wrap residue).
 - In `'para'` mode a run of blank lines collapses to a single blank line;
   in `'one'` mode blank lines disappear along with every other break.
-- Line-level only: there is no hyphenation repair, so a word split as
-  `archi-` / `tectures` across a break stays split — the module will not
-  guess whether that hyphen was authored or inserted by the typesetter.
+- Line-level only: there is no hyphenation repair. `'smart'` closes the seam
+  up, so `archi-` / `tectures` comes back as `archi-tectures` rather than
+  `archi- tectures`, but the hyphen itself stays — nothing here can tell an
+  authored `well-known` from a typesetter's split without a dictionary.
