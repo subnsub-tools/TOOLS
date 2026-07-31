@@ -5,6 +5,10 @@
   body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
   label { display: block; margin: 1rem 0 .25rem; }
   input { font: inherit; width: 100%; box-sizing: border-box; }
+  button { font: inherit; font-size: 13px; padding: .2rem .6rem; }
+  button[aria-pressed="true"] { font-weight: 700; }
+  .zones { display: flex; gap: .35rem; flex-wrap: wrap; align-items: center; margin: .35rem 0 0; }
+  .zones input { width: 12rem; }
   pre { background: #f4f4f4; padding: .6rem; white-space: pre-wrap; }
   #now { font-family: ui-monospace, monospace; }
 </style>
@@ -14,27 +18,55 @@
 
 <label for="in">Time or timestamp</label>
 <input type="text" id="in" placeholder="e.g. 1714363200, 1714363200000, or 2026/06/08" autocomplete="off">
+
+<label>Zone</label>
+<div class="zones">
+  <button type="button" data-z="" aria-pressed="true">UTC+8</button>
+  <button type="button" data-z="UTC" aria-pressed="false">UTC</button>
+  <button type="button" data-z="local" aria-pressed="false">Local</button>
+  <input type="text" id="iana" placeholder="…or an IANA name" autocomplete="off">
+</div>
+
 <pre id="out">—</pre>
 
 <script type="module">
-  import { unixParse, unixFormatUtc8, unixRelative } from './unix-time.js';
+  import { unixParse, unixFormatZone, unixRelative } from './unix-time.js';
 
   const $ = (id) => document.getElementById(id);
+  let zone = '';
 
   /* One field for every form: the module works out whether it was handed
-     seconds, milliseconds or a date. */
+     seconds, milliseconds or a date, and reads a zoneless date in `zone`. */
   const render = () => {
     const v = $('in').value.trim();
     if (!v) { $('out').textContent = '—'; return; }
-    const ms = unixParse(v);
+    const ms = unixParse(v, zone);
     $('out').textContent = ms === null
       ? "Couldn't recognize that time"
-      : `UTC+8       ${unixFormatUtc8(ms)}\n`
+      : `Zone        ${zone || 'UTC+8 (fixed)'}\n`
+      + `Wall clock  ${unixFormatZone(ms, zone)}\n`
       + `Seconds     ${Math.floor(ms / 1000)}\n`
       + `Millis      ${ms}\n`
       + `Relative    ${unixRelative(ms)}`;
   };
 
+  const setZone = (z, fromButton) => {
+    zone = z;
+    document.querySelectorAll('.zones button').forEach(b =>
+      b.setAttribute('aria-pressed', String(b.dataset.z === z)));
+    if (fromButton) $('iana').value = '';
+    render();
+  };
+
+  document.querySelectorAll('.zones button').forEach(b =>
+    b.addEventListener('click', () => setZone(b.dataset.z, true)));
+  /* Anything Intl accepts works — the module hands the name straight over. */
+  $('iana').addEventListener('input', () => {
+    const v = $('iana').value.trim();
+    if (!v) return setZone('', true);
+    try { new Intl.DateTimeFormat('en', { timeZone: v }); setZone(v); }
+    catch { $('out').textContent = `Unknown zone: ${v}`; }
+  });
   $('in').addEventListener('input', render);
 
   /* The relative line goes stale by nature — re-render it on the tick. */
