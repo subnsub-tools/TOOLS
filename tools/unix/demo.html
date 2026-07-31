@@ -21,9 +21,8 @@
 
 <label>Zone</label>
 <div class="zones">
-  <button type="button" data-z="" aria-pressed="true">UTC+8</button>
+  <button type="button" data-z="" aria-pressed="true">This device</button>
   <button type="button" data-z="UTC" aria-pressed="false">UTC</button>
-  <button type="button" data-z="local" aria-pressed="false">Local</button>
   <input type="text" id="iana" placeholder="…or an IANA name" autocomplete="off">
 </div>
 
@@ -43,7 +42,7 @@
     const ms = unixParse(v, zone);
     $('out').textContent = ms === null
       ? "Couldn't recognize that time"
-      : `Zone        ${zone || 'UTC+8 (fixed)'}\n`
+      : `Zone        ${zone || 'this device'}\n`
       + `Wall clock  ${unixFormatZone(ms, zone)}\n`
       + `Seconds     ${Math.floor(ms / 1000)}\n`
       + `Millis      ${ms}\n`

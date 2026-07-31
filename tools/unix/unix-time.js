@@ -5,26 +5,21 @@
    One field, one answer: `unixParse` takes whatever names a moment —
    epoch seconds, epoch milliseconds, an ISO 8601 string, or a common
    regional date form — works out which one it is, and returns epoch
-   milliseconds. `unixFormatZone` renders those milliseconds on a chosen
-   zone's wall clock, and `unixRelative` as "in 3 hours" / "2 days ago".
+   milliseconds. `unixFormatZone` renders those milliseconds on a zone's
+   wall clock, and `unixRelative` as "in 3 hours" / "2 days ago".
 
    Milliseconds are the internal unit throughout (JavaScript's own), so
    nothing here juggles ×1000 on the caller's behalf.
 
-   Every function that touches a wall clock takes a `zone`:
-     ''            a FIXED +08:00 offset — the tab's default. Deliberately
-                   not 'Asia/Shanghai': that zone observed daylight saving
-                   in the summers of 1986-1991, and a control that says
-                   UTC+8 ought to mean UTC+8.
-     'local'       whatever the running device resolves to, DST included.
-     an IANA name  'UTC', 'America/New_York', … handed to Intl.
-   An epoch number means the same instant in every zone; the zone decides
-   how a zoneless date is READ and how a result is SHOWN. A string that
-   carries its own offset (Z, +02:00, GMT) always keeps it.
+   Every function that touches a wall clock takes a `zone`: '' means the
+   running device's own zone (DST included) and is the tab's default,
+   anything else is an IANA name handed to Intl. An epoch number means
+   the same instant in every zone — the zone only decides how a zoneless
+   date is READ and how a result is SHOWN. A string that carries its own
+   offset (Z, +02:00, GMT) always keeps it.
 
    Pure computation: no DOM, no network, no storage. */
 
-const UNIX_UTC8_MS=8*60*60*1000;
 const unixTzFmt=new Map();
 function unixZoneFormatter(zone){
   let f=unixTzFmt.get(zone);
@@ -36,12 +31,12 @@ function unixZoneFormatter(zone){
   return f;
 }
 /* `ms` shifted so that reading it back with the getUTC* accessors yields
-   the wall clock of `zone`: format into the zone, read the fields back as
-   if they were UTC. The standard trick, and the only one that needs no
-   offset table of our own. */
+   the wall clock of `zone` ('' = this device, DST included). For a named
+   zone: format into it, then read the fields back as if they were UTC —
+   the standard trick, and the only one that needs no offset table of our
+   own. */
 function unixZoneShift(ms,zone){
-  if(!zone) return ms+UNIX_UTC8_MS;
-  if(zone==='local') return ms-new Date(ms).getTimezoneOffset()*60000;
+  if(!zone) return ms-new Date(ms).getTimezoneOffset()*60000;
   const p={};
   for(const part of unixZoneFormatter(zone).formatToParts(ms)){ if(part.type!=='literal') p[part.type]=part.value; }
   let y=Number(p.year);
@@ -79,12 +74,8 @@ export function unixDateFromParts(parts,zone){
   const [year,month,day,hour=0,minute=0,second=0,millis=0]=parts.map(Number);
   const wall=Date.UTC(year,month-1,day,hour,minute,second,millis);
   if(!Number.isFinite(wall))return null;
-  let ms;
-  if(!zone) ms=wall-UNIX_UTC8_MS;
-  else {
-    ms=wall-(unixZoneShift(wall,zone)-wall);
-    ms=wall-(unixZoneShift(ms,zone)-ms);
-  }
+  let ms=wall-(unixZoneShift(wall,zone)-wall);
+  ms=wall-(unixZoneShift(ms,zone)-ms);
   if(!Number.isFinite(ms)||Math.abs(ms)>8640000000000000)return null;
   const check=new Date(unixZoneShift(ms,zone));
   return check.getUTCFullYear()===year&&check.getUTCMonth()+1===month&&check.getUTCDate()===day&&

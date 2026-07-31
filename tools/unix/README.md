@@ -16,17 +16,12 @@ Every function that touches a wall clock takes a `zone`:
 
 | `zone` | meaning |
 |---|---|
-| `''` | a **fixed +08:00 offset** — the tab's default |
-| `'local'` | whatever the running device resolves to, DST included |
+| `''` | the running device's own zone, DST included — the tab's default |
 | an IANA name | `'UTC'`, `'America/New_York'`, … handed to `Intl` |
 
 An epoch number means the same instant in every zone. The zone decides
 how a *zoneless* date is **read** and how a result is **shown**; a string
 carrying its own offset (`Z`, `+02:00`, `GMT`) always keeps it.
-
-The default is deliberately a fixed offset rather than `Asia/Shanghai`:
-that zone observed daylight saving in the summers of 1986-1991, and a
-control that says UTC+8 ought to mean UTC+8.
 
 ## Usage
 
@@ -35,27 +30,28 @@ import { unixParse, unixFormatZone, unixRelative, unixDateFromParts }
   from './unix-time.js';
 
 // One entry point for every form — it works out which one you handed it.
+// Epoch input is zone-independent, so '' vs anything else changes nothing:
 unixParse('1714363200', '');    // 1714363200000  ← epoch seconds
 unixParse('1714363200000', ''); // 1714363200000  ← epoch milliseconds
 unixParse('1714363200.5', '');  // 1714363200500  ← fractional seconds
-unixParse('20260608', '');      // 1780848000000  ← a date, it spells one
 unixParse('12345678', '');      // 12345678000    ← not a date, so seconds
-unixParse('2026年6月8日', '');   // 1780848000000
-unixParse('2026-02-30', '');    // null  ← matched a date grammar, impossible
 unixParse('not a date', '');    // null
 
-// The zone is what a zoneless date is read in…
-unixParse('2026-06-08', '');                  // 1780848000000
+// A zoneless date IS read in the zone (these assume '' resolves to UTC):
 unixParse('2026-06-08', 'UTC');               // 1780876800000
+unixParse('2026-06-08', 'Asia/Shanghai');     // 1780848000000
 unixParse('2026-06-08', 'America/New_York');  // 1780891200000
+unixParse('20260608', 'UTC');    // 1780876800000  ← a date, it spells one
+unixParse('2026年6月8日', 'UTC'); // 1780876800000
+unixParse('2026-02-30', 'UTC');  // null  ← matched a date grammar, impossible
 // …but an epoch value, or a string with its own offset, ignores it.
 unixParse('1714363200', 'UTC') === unixParse('1714363200', 'Asia/Tokyo');   // true
 unixParse('2026-06-08T14:30:00+02:00', 'UTC'); // 1780921800000
 // An hour a spring-forward skips does not exist:
 unixParse('2026-03-08 02:30', 'America/New_York'); // null
 
-unixFormatZone(1714363200000, '');                  // '2024-04-29 12:00:00'
 unixFormatZone(1714363200000, 'UTC');               // '2024-04-29 04:00:00'
+unixFormatZone(1714363200000, 'Asia/Shanghai');     // '2024-04-29 12:00:00'
 unixFormatZone(1714363200000, 'America/New_York');  // '2024-04-29 00:00:00'
 unixFormatZone(1714363200000, 'Asia/Kathmandu');    // '2024-04-29 09:45:00'
 unixFormatZone(NaN, 'UTC');                         // null
@@ -65,9 +61,9 @@ unixRelative(Date.now() - 3 * 864e5);          // '3 days ago'
 unixRelative(Date.now() - 3 * 864e5, 'zh-CN'); // '3天前'
 
 // [year, month, day, hour, minute, second, millis] read in `zone`
-unixDateFromParts([2026, 6, 8], '');       // 1780848000000
-unixDateFromParts([2026, 6, 8], 'UTC');    // 1780876800000
-unixDateFromParts([2026, 2, 30], '');      // null — no such day
+unixDateFromParts([2026, 6, 8], 'UTC');            // 1780876800000
+unixDateFromParts([2026, 6, 8], 'Asia/Shanghai');  // 1780848000000
+unixDateFromParts([2026, 2, 30], 'UTC');           // null — no such day
 ```
 
 ## Notes
