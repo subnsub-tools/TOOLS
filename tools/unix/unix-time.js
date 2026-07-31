@@ -18,8 +18,17 @@
    date is READ and how a result is SHOWN. A string that carries its own
    offset (Z, +02:00, GMT) always keeps it.
 
+   `unixZoneOk` is exported for callers that take a zone from anywhere
+   untrusted (stored preference, query string, user input): Intl throws a
+   RangeError on a name its tz data does not know, and every function here
+   would carry that up to the caller.
+
    Pure computation: no DOM, no network, no storage. */
 
+export function unixZoneOk(z){
+  if(!z) return true;
+  try{ new Intl.DateTimeFormat('en',{timeZone:z}); return true; }catch(_){ return false; }
+}
 const unixTzFmt=new Map();
 function unixZoneFormatter(zone){
   let f=unixTzFmt.get(zone);
@@ -51,7 +60,12 @@ function unixZoneShift(ms,zone){
 function unixPad(n,w=2){ return String(n).padStart(w,'0'); }
 export function unixFormatZone(ms,zone){
   if(!Number.isFinite(ms)) return null;
-  const d=new Date(unixZoneShift(ms,zone));
+  /* ±8.64e15 is a legal instant, but shifting it into a zone can push it out
+     of the Date range — formatting that would print 0NaN-0NaN. */
+  const shifted=unixZoneShift(ms,zone);
+  if(!Number.isFinite(shifted)) return null;
+  const d=new Date(shifted);
+  if(!Number.isFinite(d.getTime())) return null;
   return `${unixPad(d.getUTCFullYear(),4)}-${unixPad(d.getUTCMonth()+1)}-${unixPad(d.getUTCDate())} ${unixPad(d.getUTCHours())}:${unixPad(d.getUTCMinutes())}:${unixPad(d.getUTCSeconds())}`;
 }
 export function unixRelative(ms,locale){

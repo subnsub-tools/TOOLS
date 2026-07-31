@@ -7,7 +7,8 @@ math and formatting the site applies are auditable.
 ## Files
 
 - [`unix-time.js`](unix-time.js) — the module: `unixParse()`,
-  `unixFormatZone()`, `unixRelative()`, `unixDateFromParts()`
+  `unixFormatZone()`, `unixRelative()`, `unixDateFromParts()`,
+  `unixZoneOk()`
 - [`demo.html`](demo.html) — minimal standalone page exercising the module
 
 ## Zones
@@ -22,6 +23,17 @@ Every function that touches a wall clock takes a `zone`:
 An epoch number means the same instant in every zone. The zone decides
 how a *zoneless* date is **read** and how a result is **shown**; a string
 carrying its own offset (`Z`, `+02:00`, `GMT`) always keeps it.
+
+`Intl` throws a `RangeError` on a zone name its data does not know, and
+every function here would carry that up to you. If the zone comes from
+anywhere untrusted — a stored preference, a query string, a text field —
+check it first:
+
+```js
+unixZoneOk('');              // true  — the device's own zone
+unixZoneOk('America/New_York');  // true
+unixZoneOk('Mars/Olympus');      // false
+```
 
 ## Usage
 
@@ -55,6 +67,8 @@ unixFormatZone(1714363200000, 'Asia/Shanghai');     // '2024-04-29 12:00:00'
 unixFormatZone(1714363200000, 'America/New_York');  // '2024-04-29 00:00:00'
 unixFormatZone(1714363200000, 'Asia/Kathmandu');    // '2024-04-29 09:45:00'
 unixFormatZone(NaN, 'UTC');                         // null
+// A legal ±8.64e15 instant can shift out of the Date range in some zones:
+unixFormatZone(8640000000000000, 'Asia/Tokyo');     // null
 
 unixRelative(Date.now() + 7.2e6);              // 'in 2 hours'
 unixRelative(Date.now() - 3 * 864e5);          // '3 days ago'
