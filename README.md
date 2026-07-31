@@ -46,6 +46,7 @@ about shapes:
 | [YAML](tools/yaml/) | `yaml-convert.js` | YAML ↔ JSON, hand-rolled parser and emitter. |
 | [Regex](tools/regex/) | `regex-test.js` | Regex evaluation — matches, positions, capture groups. |
 | [Diff](tools/diff/) | `text-diff.js` | Plain-text diff. |
+| [Reflow](tools/reflow/) | `reflow-text.js` | Line-break cleanup for copied text — paragraph detection and the script-aware join seam. |
 | [JWT](tools/jwt/) | `jwt-verify.js` | JWT decode + WebCrypto signature verification. |
 | [Hash](tools/hash/) | `hash-digest.js` | WebCrypto digests over text and files. |
 | [Color](tools/color/) | `color-convert.js` | Color parsing and space conversion. |

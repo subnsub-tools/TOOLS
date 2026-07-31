@@ -1,0 +1,52 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Reflow — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 44rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: 1rem 0 .25rem; }
+  textarea { font: inherit; width: 100%; }
+  fieldset { margin: 1rem 0 0; }
+  #out { font-family: ui-monospace, monospace; white-space: pre-wrap; border: 1px solid #ccc; padding: .5rem; min-height: 3rem; }
+</style>
+
+<h1>Reflow — demo</h1>
+<p>Undo the hard line breaks that come with text copied out of a PDF or a web
+page. Everything runs locally.</p>
+
+<label>Pasted text <textarea id="in" rows="8">Recent advances in transformer
+architectures have shown that
+scaling laws hold across modalities.
+
+这是一段从 PDF 里复制
+出来的中文，带着硬换行。</textarea></label>
+
+<fieldset>
+  <legend>Mode</legend>
+  <label><input type="radio" name="mode" value="para" checked> Keep paragraphs</label>
+  <label><input type="radio" name="mode" value="one"> Join everything</label>
+</fieldset>
+
+<fieldset>
+  <legend>At each join</legend>
+  <label><input type="radio" name="join" value="smart" checked> Smart space</label>
+  <label><input type="radio" name="join" value="space"> Always a space</label>
+  <label><input type="radio" name="join" value="none"> No space</label>
+</fieldset>
+
+<p>Result</p>
+<div id="out"></div>
+
+<script type="module">
+  import { reflow } from './reflow-text.js';
+
+  const $ = (id) => document.getElementById(id);
+  const picked = (name) => document.querySelector(`input[name="${name}"]:checked`).value;
+
+  function run() {
+    $('out').textContent = reflow($('in').value, { mode: picked('mode'), join: picked('join') });
+  }
+
+  $('in').oninput = run;
+  document.querySelectorAll('input[type="radio"]').forEach((r) => { r.onchange = run; });
+  run();
+</script>
