@@ -1,50 +1,70 @@
 # Unix Timestamp
 
-Unix epoch seconds ↔ human-readable dates — the logic of the Unix
+Unix epoch timestamps ↔ human-readable dates — the logic of the Unix
 tab on [subnsub.com](https://subnsub.com), published so the conversion
 math and formatting the site applies are auditable.
 
 ## Files
 
-- [`unix-time.js`](unix-time.js) — the module: `timestampToDate()`,
-  `dateToTimestamp()`, `describeTimestamp()`, `relTime()`
+- [`unix-time.js`](unix-time.js) — the module: `unixParse()`,
+  `unixFormatUtc8()`, `unixRelative()`, `unixDateFromParts()`
 - [`demo.html`](demo.html) — minimal standalone page exercising the module
 
 ## Usage
 
 ```js
-import { timestampToDate, dateToTimestamp, describeTimestamp, relTime }
+import { unixParse, unixFormatUtc8, unixRelative, unixDateFromParts }
   from './unix-time.js';
 
-timestampToDate('1714363200');    // '2024-04-29 04:00:00.000 UTC'
-timestampToDate('1714363200.5');  // '2024-04-29 04:00:00.500 UTC'
-timestampToDate('junk');          // null
+// One entry point for every form — it works out which one you handed it.
+unixParse('1714363200');      // 1714363200000  ← epoch seconds
+unixParse('1714363200000');   // 1714363200000  ← epoch milliseconds
+unixParse('1714363200.5');    // 1714363200500  ← fractional seconds
+unixParse('2026-06-08');      // 1780848000000  ← read as UTC+8
+unixParse('2026/06/08 14:30');// 1780900200000
+unixParse('20260608');        // 1780848000000  ← a date, it spells one
+unixParse('12345678');        // 12345678000    ← not a date, so seconds
+unixParse('2026年6月8日');     // 1780848000000
+unixParse('2026-06-08T14:30:00+02:00'); // 1780921800000 ← keeps its offset
+unixParse('2026-02-30');      // null  ← matched a date grammar, impossible
+unixParse('not a date');      // null
 
-dateToTimestamp('2024-04-29T04:00:00Z');  // 1714363200
-dateToTimestamp('2024-04-29T04:00');      // read in the *local* zone
-                                          // (the tab feeds a datetime-local value)
+unixFormatUtc8(1714363200000);   // '2024-04-29 12:00:00'
+unixFormatUtc8(NaN);             // null
 
-describeTimestamp(1714363200);
-// { utc: 'Mon, 29 Apr 2024 04:00:00 GMT',
-//   local: '4/29/2024, 4:00:00 AM',        ← locale/zone dependent
-//   rel: '805d ago' }                      ← relative to now
+unixRelative(Date.now() + 7.2e6);         // 'in 2 hours'
+unixRelative(Date.now() - 3 * 864e5);     // '3 days ago'
+unixRelative(Date.now() - 3 * 864e5, 'zh-CN'); // '3天前'
 
-relTime(-42);     // '42s ago'
-relTime(7200);    // 'in 2h'
+// [year, month, day, hour, minute, second, millis] read as UTC+8
+unixDateFromParts([2026, 6, 8]);      // 1780848000000
+unixDateFromParts([2026, 2, 30]);     // null — no such day
 ```
 
 ## Notes
 
-- Timestamps are epoch **seconds** (the Unix convention); the
-  ×1000/÷1000 against JavaScript's millisecond dates happens inside the
-  module. Fractional and negative (pre-1970) seconds are fine.
-- Formatting leans on the platform deliberately — `toISOString`,
-  `toUTCString`, `toLocaleString` — so output matches what the runtime
-  itself considers correct for the viewer's locale and zone.
-- Boundaries are the platform's too: `timestampToDate` accepts whatever
-  `Number()` accepts and returns `null` for empty or non-numeric input;
-  `dateToTimestamp` accepts whatever the `Date` constructor parses and
-  returns `null` otherwise; timestamps beyond the ECMAScript `Date`
-  range (±8.64e15 ms) throw a `RangeError` from `toISOString`.
-- `describeTimestamp`'s `rel` string is relative to the moment of the
-  call — the tab re-renders it every second.
+- **Milliseconds are the unit.** `unixParse` always returns epoch
+  milliseconds; divide by 1000 yourself if you want seconds. Input may
+  be either — a bare number is read as seconds up to 11 digits and as
+  milliseconds beyond, a threshold far past any plausible
+  second-precision date.
+- **An unpunctuated digit run is checked as a date first.** `20260608`
+  and `20260608143000` spell real calendar dates, so they are read as
+  such; `12345678` and `10000000000000` do not, so they stay epoch
+  values. Anything carrying separators is only ever a date.
+- **Output is UTC+8, on purpose.** Reading a zoneless date in the
+  viewer's own zone would make one input mean different instants on
+  different machines — no good when two people are comparing a
+  timestamp. A string that carries an explicit offset (`Z`, `+02:00`,
+  `GMT`) keeps its own and is converted for display.
+- **Impossible dates are rejected, not rolled over.** `2026-02-30`
+  returns `null` rather than becoming 2 March: every parsed date is
+  round-tripped through `Date` and the fields must come back unchanged.
+- Negative (pre-1970) and fractional values are fine. Anything beyond
+  the ECMAScript `Date` range (±8.64e15 ms) returns `null` rather than
+  throwing.
+- `unixRelative` picks the largest unit that fits (second, minute, hour,
+  day) and formats it with `Intl.RelativeTimeFormat`; pass a locale as
+  the second argument, or leave it out for the runtime default. Its
+  output is relative to the moment of the call — the tab re-renders it
+  every second.

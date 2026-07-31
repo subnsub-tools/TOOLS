@@ -4,56 +4,41 @@
 <style>
   body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
   label { display: block; margin: 1rem 0 .25rem; }
-  input, button { font: inherit; }
-  input { width: 100%; box-sizing: border-box; }
+  input { font: inherit; width: 100%; box-sizing: border-box; }
   pre { background: #f4f4f4; padding: .6rem; white-space: pre-wrap; }
   #now { font-family: ui-monospace, monospace; }
 </style>
 
 <h1>Unix Timestamp — demo</h1>
-<p>Epoch seconds ↔ dates. Current timestamp: <b id="now"></b></p>
+<p>Current timestamp: <b id="now"></b></p>
 
-<label for="ts">Timestamp → date</label>
-<input type="text" id="ts" placeholder="e.g. 1714363200" autocomplete="off">
-<pre id="ts-out">—</pre>
-
-<label for="date">Date → timestamp (read in your local zone)</label>
-<input type="datetime-local" id="date">
-<pre id="date-out">—</pre>
+<label for="in">Time or timestamp</label>
+<input type="text" id="in" placeholder="e.g. 1714363200, 1714363200000, or 2026/06/08" autocomplete="off">
+<pre id="out">—</pre>
 
 <script type="module">
-  import { timestampToDate, dateToTimestamp, describeTimestamp } from './unix-time.js';
+  import { unixParse, unixFormatUtc8, unixRelative } from './unix-time.js';
 
   const $ = (id) => document.getElementById(id);
 
-  const strip = (ts) => {
-    const d = describeTimestamp(ts);
-    return d ? `\nUTC       ${d.utc}\nLocal     ${d.local}\nRelative  ${d.rel}` : '';
+  /* One field for every form: the module works out whether it was handed
+     seconds, milliseconds or a date. */
+  const render = () => {
+    const v = $('in').value.trim();
+    if (!v) { $('out').textContent = '—'; return; }
+    const ms = unixParse(v);
+    $('out').textContent = ms === null
+      ? "Couldn't recognize that time"
+      : `UTC+8       ${unixFormatUtc8(ms)}\n`
+      + `Seconds     ${Math.floor(ms / 1000)}\n`
+      + `Millis      ${ms}\n`
+      + `Relative    ${unixRelative(ms)}`;
   };
 
-  $('ts').addEventListener('input', () => {
-    const v = $('ts').value;
-    let text;
-    try {
-      const r = timestampToDate(v);
-      text = r === null
-        ? (v.trim() ? 'Invalid timestamp' : '—')
-        : r + strip(Number(v.trim()));
-    } catch (e) {
-      text = e.message; /* beyond the ECMAScript Date range */
-    }
-    $('ts-out').textContent = text;
-  });
+  $('in').addEventListener('input', render);
 
-  $('date').addEventListener('input', () => {
-    const v = $('date').value;
-    const ts = dateToTimestamp(v);
-    $('date-out').textContent = ts === null
-      ? (v ? 'Invalid date' : '—')
-      : ts + strip(ts);
-  });
-
-  const tick = () => { $('now').textContent = Math.floor(Date.now() / 1000); };
+  /* The relative line goes stale by nature — re-render it on the tick. */
+  const tick = () => { $('now').textContent = Math.floor(Date.now() / 1000); render(); };
   setInterval(tick, 1000);
   tick();
 </script>
