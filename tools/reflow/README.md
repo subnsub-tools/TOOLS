@@ -42,15 +42,26 @@ At every break the module decides what, if anything, replaces it:
 - **`'space'`** — always a space. Correct for Latin scripts and wrong in the
   middle of a Chinese sentence.
 - **`'none'`** — nothing at all.
-- **`'smart'`** — a space, *except* in three cases:
+- **`'smart'`** — a space, *except* in five cases:
   1. between two characters of a script that does not separate words with one
-     (`NO_SPACE_SCRIPT`: Han including the planes past the BMP, kana,
+     (`NO_SPACE_SCRIPT`: Han across every plane out to extension H, kana,
      halfwidth kana, and the fullwidth / CJK punctuation that sits at a line
      edge);
   2. after a line-final connector — `well-` / `known` and folded URLs like
      `https://…/` / `path` have to close up;
-  3. before punctuation that never takes a leading space (`,` `.` `;` `:`
-     `!` `?` `%` `)` `]` `}` `»` `”` `’`).
+  3. after opening punctuation (`(` `[` `{` `«` `“` `‘` and the CJK/fullwidth
+     equivalents) or before closing punctuation (`,` `.` `;` `:` `!` `?` `%`
+     `)` `]` `}` `»` `”` `’` `…` and theirs). The fullwidth ones are listed
+     even though they are inside `NO_SPACE_SCRIPT`: that test only fires when
+     **both** sides match, so `ABC` / `，` would otherwise gain a space;
+  4. on URL punctuation (`?` `&` `=` `#` `%` …) **when the line actually ends
+     inside a URL** — a bare `?` ending a line is a sentence, and gluing there
+     would be wrong, so the check walks back to the last space and looks for a
+     scheme;
+  5. between a Han character and an ASCII/fullwidth digit: `第2章` and `2026年`
+     had no space in the source, so putting one back is a visible error. Latin
+     *letters* go the other way — `使用 Python` is the house style for mixed
+     CJK text, and that spacing is kept.
 
 Hangul is deliberately **not** in the no-space set: Korean spaces its words
 the way Latin does, so a Korean line break wants the space and dropping it
@@ -59,16 +70,23 @@ shorthand here.
 
 ## Model & boundaries
 
-- `\r\n`, a lone `\r` and U+2028 normalise to `\n`. U+2029 is a *paragraph*
-  separator, so it normalises to a blank line instead — collapsing it would
-  drop the very boundary `'para'` mode exists to keep.
+- `\r\n`, a lone `\r`, U+0085 NEXT LINE and U+2028 normalise to `\n`. U+2029
+  is a *paragraph* separator, so it normalises to a blank line instead —
+  collapsing it would drop the very boundary `'para'` mode exists to keep.
+- Linear in the input, deliberately. The trims walk the ends by hand rather
+  than run `/[whitespace]+$/`, which backtracks from every position (3s on 40k
+  trailing spaces), and the join tracks the tail piece separately instead of
+  re-reading the accumulated string (18s on 160k lines). Both matter because
+  the on-site tab re-runs this on every keystroke.
 - Trailing horizontal whitespace comes off every line before anything else:
   it is residue of the wrap being undone, and left in place it would silently
   decide the `'smart'` test. The full Unicode set is matched (U+00A0, U+1680,
   U+2000–U+200A, U+202F, U+205F, U+3000), because PDF text runs use more than
   the ASCII space.
 - The two characters either side of a seam are read as whole code points, so
-  Han past the BMP classifies correctly rather than as half a surrogate pair.
+  Han past the BMP classifies correctly rather than as half a surrogate pair;
+  variation selectors and ZWJ are skipped, so `漢` is what gets tested rather
+  than the selector trailing it.
 - Within a paragraph, the **first** line keeps its leading whitespace (an
   authored indent) and continuation lines lose theirs (wrap residue).
 - In `'para'` mode a run of blank lines collapses to a single blank line;
