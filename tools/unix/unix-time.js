@@ -72,7 +72,11 @@ export function unixRelative(ms,locale){
    a transition, and the round-trip check is what rejects the rest. */
 export function unixDateFromParts(parts,zone){
   const [year,month,day,hour=0,minute=0,second=0,millis=0]=parts.map(Number);
-  const wall=Date.UTC(year,month-1,day,hour,minute,second,millis);
+  /* Placeholder year, then stamped — Date.UTC folds 0-99 onto 1900-1999, and
+     the round-trip below would then reject every year under 100. */
+  const wallD=new Date(Date.UTC(2000,month-1,day,hour,minute,second,millis));
+  wallD.setUTCFullYear(year);
+  const wall=wallD.getTime();
   if(!Number.isFinite(wall))return null;
   let ms=wall-(unixZoneShift(wall,zone)-wall);
   ms=wall-(unixZoneShift(ms,zone)-ms);
@@ -120,12 +124,17 @@ export function unixParse(value,zone){
      zone unless that is what you picked. The structured parser above owns
      the common, deterministic numeric forms. */
   if(!/\d/.test(value))return null;
+  const explicit=/(?:Z|[+-]\d{2}:?\d{2}|\b(?:UTC|GMT))\s*$/i.test(value);
   const prefixed=value.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T\s]+(\d{1,2})(?::(\d{1,2}))?(?::(\d{1,2}))?(?:\.(\d{1,3}))?)?/);
   if(prefixed){
     const fraction=prefixed[7]?Number(prefixed[7].padEnd(3,'0')):0;
-    if(unixDateFromParts([prefixed[1],prefixed[2],prefixed[3],prefixed[4]||0,prefixed[5]||0,prefixed[6]||0,fraction],zone)===null)return null;
+    /* The calendar part has to name a real day, or Date.parse below rolls
+       2026-02-30 into March. A value carrying its own offset is checked
+       zone-free: its wall clock belongs to that offset, not to the zone the
+       result gets shown in — otherwise a perfectly good 02:30-05:00 would be
+       rejected for landing in the display zone's spring-forward gap. */
+    if(unixDateFromParts([prefixed[1],prefixed[2],prefixed[3],prefixed[4]||0,prefixed[5]||0,prefixed[6]||0,fraction],explicit?'UTC':zone)===null)return null;
   }
-  const explicit=/(?:Z|[+-]\d{2}:?\d{2}|\b(?:UTC|GMT))\s*$/i.test(value);
   if(explicit){ const parsed=Date.parse(value); return Number.isFinite(parsed)?parsed:null; }
   /* No offset in the string: read those wall-clock fields in the chosen
      zone. Parsing as UTC first gives the fields as an epoch value, which
