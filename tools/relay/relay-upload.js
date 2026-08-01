@@ -568,12 +568,19 @@ function grayFrame(cx, aw, ah){
   for(let p = 0; p < g.length; p++){ const q = p * 4; g[p] = d[q] * .299 + d[q + 1] * .587 + d[q + 2] * .114; }
   return g;
 }
-let _spDiff = null;    /* scratch |a-b| buffer, reused across every scored pair */
+/* Scratch buffers reused across every scored pair — a 120fps play scan
+   runs this inside every rVFC callback, where per-call allocation is
+   pure GC pressure against an ~8ms frame budget. */
+let _spDiff = null, _spRows = null, _spCols = null, _cbLabels = null;
+const _spSums = new Float32Array(64), _spCounts = new Float32Array(64), _cbParent = [0];
 function scorePair(a, b, aw, ah){
   if(!a || !b) return { score: 0, boxes: null };
   const GB = 8;
-  const sums = new Float32Array(GB * GB), counts = new Float32Array(GB * GB);
-  const rows = new Float32Array(ah), cols = new Float32Array(aw);
+  const sums = _spSums, counts = _spCounts;
+  sums.fill(0); counts.fill(0);
+  const rows = (_spRows && _spRows.length === ah) ? _spRows : (_spRows = new Float32Array(ah));
+  const cols = (_spCols && _spCols.length === aw) ? _spCols : (_spCols = new Float32Array(aw));
+  rows.fill(0); cols.fill(0);
   const d = (_spDiff && _spDiff.length === aw * ah) ? _spDiff : (_spDiff = new Float32Array(aw * ah));
   for(let y = 0; y < ah; y++){
     const rowB = Math.min(GB - 1, (y * GB / ah) | 0) * GB, rowOff = y * aw;
@@ -606,8 +613,10 @@ function scorePair(a, b, aw, ah){
    clears the threshold. */
 function changeBoxes(d, aw, ah){
   const THR = 6;
-  const labels = new Int32Array(aw * ah);
-  const parent = [0];
+  const labels = (_cbLabels && _cbLabels.length === aw * ah) ? _cbLabels : (_cbLabels = new Int32Array(aw * ah));
+  labels.fill(0);
+  const parent = _cbParent;
+  parent.length = 1;
   const find = (x) => { while(parent[x] !== x){ parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
   let n = 0;
   for(let y = 0; y < ah; y++){
@@ -645,7 +654,11 @@ function changeBoxes(d, aw, ah){
   }
   let list = Array.from(stats.values()).sort((a, b) => b.e - a.e);
   const top = list[0].e;
-  list = list.filter(b => b.e >= top * 0.1 && b.c >= 2).slice(0, 4);
+  /* Wide pre-cap (16, pathological-noise guard only): capping to the
+     output size BEFORE the band merge truncated strips that decompose
+     into more clusters than the cap, and hid the dropped components
+     from the full-frame coverage verdict below. */
+  list = list.filter(b => b.e >= top * 0.1 && b.c >= 2).slice(0, 16);
   if(!list.length) return null;
   /* band merge: same horizontal band (≥60% y-overlap) or vertical band,
      or plain adjacency (gap ≤ 2 px). Repeats until stable — bounded,
@@ -671,10 +684,13 @@ function changeBoxes(d, aw, ah){
     }
   }
   list.sort((a, b) => b.e - a.e);
-  list = list.slice(0, 3);
+  /* Full-frame verdict on ALL merged bands, not just the ones kept:
+     a change that IS the whole frame should suppress boxes even when
+     its energy is spread across more than three bands. */
   let cover = 0;
   for(const b of list) cover += (b.x1 - b.x0 + 1) * (b.y1 - b.y0 + 1);
   if(cover / (aw * ah) > 0.55) return null;
+  list = list.slice(0, 3);
   const PAD = 1.25;
   return list.map(b => {
     const x = Math.max(0, b.x0 - PAD) / aw, y = Math.max(0, b.y0 - PAD) / ah;
@@ -748,6 +764,12 @@ async function playScanFrames(vid, onStep, cancelled){
           let g = null;
           try { cx.drawImage(vid, 0, 0, aw, ah); g = grayFrame(cx, aw, ah); } catch (_){ return fin(false); }
           if(prevG){
+            /* backfill the PREVIOUS scored frame's presentation span
+               (how long it stayed on screen) now that its end is known:
+               the seek-back offset must stay inside that span, or a
+               short VFR transient gets captured as the frame AFTER the
+               one its boxes were scored on. */
+            if(segs.length) segs[segs.length - 1].span = t - segs[segs.length - 1].b.t;
             const sp = scorePair(prevG, g, aw, ah);
             segs.push({ b: { t }, score: sp.score, boxes: sp.boxes });
             deltas.push(t - lastT);
@@ -898,7 +920,7 @@ export async function extractKeyframeTimes(vid, { onStep = () => {}, cancelled =
      0-score point is just empty footage, and letting it claim a
      slot would crowd out the burst points the later passes exist for
      (static clips fill via the even fallback instead). */
-  const scores = segs.map(seg => ({ t: seg.b.t, score: seg.score, boxes: seg.boxes || null }))
+  const scores = segs.map(seg => ({ t: seg.b.t, score: seg.score, boxes: seg.boxes || null, span: seg.span }))
     .filter(s => s.score > Math.max(3, mean * 0.5))
     .sort((x, y) => y.score - x.score);
   /* picked entries are {t, boxes}: the change boxes travel with the
@@ -910,7 +932,7 @@ export async function extractKeyframeTimes(vid, { onStep = () => {}, cancelled =
     const cap = Math.min(N, limit || N);
     for(const s of scores){
       if(picked.length >= cap) break;
-      if(picked.every(p => Math.abs(p.t - s.t) >= gap)) picked.push({ t: s.t, boxes: s.boxes });
+      if(picked.every(p => Math.abs(p.t - s.t) >= gap)) picked.push({ t: s.t, boxes: s.boxes, span: s.span });
     }
   };
   /* three passes: duration/N spacing first, which by construction cannot
@@ -934,10 +956,18 @@ export async function extractKeyframeTimes(vid, { onStep = () => {}, cancelled =
   picked.sort((a, b) => a.t - b.t);
   /* play-scan times are exact frame PTS values; seeking back to an
      exact boundary can land on the previous frame through float
-     rounding. Half a frame in lands mid-presentation, unambiguous.
-     Clamp short of duration itself — an exact-EOF seek may present
-     nothing to draw (Safari) or hang the seeked event. */
-  return frameDur ? picked.map(p => ({ t: Math.min(duration - frameDur / 4, p.t + frameDur / 2), boxes: p.boxes })) : picked;
+     rounding. Half a frame in lands mid-presentation, unambiguous —
+     but "half a frame" must be half of THAT frame's own presentation
+     span when it is known and shorter than the typical frame: a VFR
+     burst frame can leave the screen before frameDur/2 has passed,
+     and overshooting it would pair the previous frame's boxes with
+     the next frame's pixels. Clamp short of duration itself — an
+     exact-EOF seek may present nothing to draw (Safari) or hang the
+     seeked event. */
+  return frameDur ? picked.map(p => ({
+    t: Math.min(duration - frameDur / 4, p.t + Math.min(frameDur, p.span || frameDur) / 2),
+    boxes: p.boxes,
+  })) : picked;
 }
 
 /* The whole pipeline: analyze → extract → contact sheet → pack.
