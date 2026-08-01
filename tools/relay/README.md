@@ -20,7 +20,7 @@ leaves the device, only the packed ZIP of frames is uploaded.
   (`pasteBytesOf()`, `pasteDisplayName()`, `pastePreflight()`,
   `canDeletePaste()`), `md5Hex()`/`md5OfBlob()`, and the video half
   (`videoToFramesZip()`, `extractKeyframeTimes()`, `captureVideoFrame()`,
-  `buildContactSheet()`, `buildZip()`)
+  `drawChangeBoxes()`, `buildContactSheet()`, `buildZip()`)
 - [`demo.html`](demo.html) — minimal standalone page. **Its uploader is an
   injected fake** (a timer that ticks progress and mints an
   `example.invalid` URL) so the queue/concurrency/progress logic can be

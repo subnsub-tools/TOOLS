@@ -417,6 +417,32 @@ export function captureVideoFrame(video, index, time){
   return canvas;
 }
 
+/* Burn the changed-region outlines into a rendered frame. The rects are
+   normalized fractions from the 96px analysis thumbs (same aspect as the
+   video, so they map straight onto any render size); the double stroke —
+   white casing under a warm red core — stays legible on any footage.
+   Contact-sheet thumbs drawn FROM this canvas inherit the outlines for
+   free. Returns whether anything was drawn. */
+export function drawChangeBoxes(canvas, boxes){
+  if(!boxes || !boxes.length) return false;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const core = Math.max(3, Math.round(W / 420));
+  ctx.lineJoin = 'round';
+  for(const b of boxes){
+    const x = b.x * W, y = b.y * H, w = b.w * W, h = b.h * H;
+    const r = Math.min(core * 2.5, w / 2, h / 2);
+    const path = () => {
+      ctx.beginPath();
+      if(typeof ctx.roundRect === 'function') ctx.roundRect(x, y, w, h, r);
+      else ctx.rect(x, y, w, h);
+    };
+    path(); ctx.lineWidth = core + 2; ctx.strokeStyle = 'rgba(255,255,255,0.92)'; ctx.stroke();
+    path(); ctx.lineWidth = core; ctx.strokeStyle = '#f03e2d'; ctx.stroke();
+  }
+  return true;
+}
+
 /* Tile frame canvases into one overview grid (≤6 columns) with a header
    line; returns the sheet canvas. */
 export function buildContactSheet(frames, headerText){
@@ -497,13 +523,30 @@ function crc32(buf){
 /* ── Smart keyframe picking: two scan modes, one selection pass ──
 
    Change metric (both modes): frames are compared as 96px grayscale
-   thumbs split into an 8×8 block grid, scored by the WORST block's
-   mean abs diff. A full-frame mean buries small-area changes — a
-   glitching widget at ~5% of a screen recording reads ~2, below any
-   usable noise floor, so the whole clip classifies as static; the
-   same event's worst block reads like a scene cut (real case: a
-   0.14 s layout jump scored 2.0 full-frame, 31 block-max). Full-frame
-   cuts are unaffected: every block ≈ the global mean, max ≥ mean.
+   thumbs, scored by the WORST of: 8×8-grid block mean abs diff, and
+   1.5× the worst single ROW / COLUMN mean. A full-frame mean buries
+   small-area changes — a glitching widget at ~5% of a screen
+   recording reads ~2, below any usable noise floor, so the whole
+   clip classifies as static; the same event's worst block reads like
+   a scene cut (real case: a 0.14 s layout jump scored 2.0 full-frame,
+   31 block-max). The row/column channels cover the block grid's own
+   blind spot — thin full-width structures: a tab strip snapping
+   sideways 90 px lives on ~2 thumb rows, so every 12×8 block dilutes
+   it with static context (measured 2.2 block-max, under the pick
+   floor) while its worst row reads 8.8; ×1.5 calibrates the channels
+   to comparable scale (static-footage row noise measures ≤0.3, so
+   the floor stays far away). Full-frame cuts are unaffected: every
+   block ≈ the global mean, max ≥ mean.
+
+   Change LOCATION rides along: any pair scoring above the pick floor
+   also gets up to 3 normalized boxes around its changed regions
+   (|diff| > 6 pixels → 8-connected components → top components by
+   energy, same-band ones merged — a strip shift is one wide box, not
+   per-label confetti). Pairs whose boxes would cover most of the
+   frame return none: a scene cut IS the frame, outlining it says
+   nothing. The boxes are burned into the extracted frames and the
+   contact sheet as red outlines so a reader can see WHERE each
+   picked moment changed, not just when.
 
    PLAY SCAN (short clips): seek sampling at ANY density cannot rule
    out a transient between two samples — an A→B→A glitch lives and
@@ -525,20 +568,119 @@ function grayFrame(cx, aw, ah){
   for(let p = 0; p < g.length; p++){ const q = p * 4; g[p] = d[q] * .299 + d[q + 1] * .587 + d[q + 2] * .114; }
   return g;
 }
-function blockDiff(a, b, aw, ah){
-  if(!a || !b) return 0;
+let _spDiff = null;    /* scratch |a-b| buffer, reused across every scored pair */
+function scorePair(a, b, aw, ah){
+  if(!a || !b) return { score: 0, boxes: null };
   const GB = 8;
   const sums = new Float32Array(GB * GB), counts = new Float32Array(GB * GB);
+  const rows = new Float32Array(ah), cols = new Float32Array(aw);
+  const d = (_spDiff && _spDiff.length === aw * ah) ? _spDiff : (_spDiff = new Float32Array(aw * ah));
   for(let y = 0; y < ah; y++){
     const rowB = Math.min(GB - 1, (y * GB / ah) | 0) * GB, rowOff = y * aw;
     for(let x = 0; x < aw; x++){
-      sums[rowB + Math.min(GB - 1, (x * GB / aw) | 0)] += Math.abs(a[rowOff + x] - b[rowOff + x]);
-      counts[rowB + Math.min(GB - 1, (x * GB / aw) | 0)]++;
+      const v = Math.abs(a[rowOff + x] - b[rowOff + x]);
+      d[rowOff + x] = v;
+      const bi = rowB + Math.min(GB - 1, (x * GB / aw) | 0);
+      sums[bi] += v; counts[bi]++;
+      rows[y] += v; cols[x] += v;
     }
   }
   let max = 0;
   for(let i = 0; i < GB * GB; i++) if(counts[i]) max = Math.max(max, sums[i] / counts[i]);
-  return max;
+  let rowMax = 0;
+  for(let y = 0; y < ah; y++) if(rows[y] / aw > rowMax) rowMax = rows[y] / aw;
+  let colMax = 0;
+  for(let x = 0; x < aw; x++) if(cols[x] / ah > colMax) colMax = cols[x] / ah;
+  const score = Math.max(max, 1.5 * rowMax, 1.5 * colMax);
+  /* Boxes only for pairs that can possibly be picked (score floor is
+     max(3, …) in the selection pass) — static footage never pays the
+     component-labeling cost. */
+  return { score, boxes: score > 3 ? changeBoxes(d, aw, ah) : null };
+}
+/* Changed-region boxes from a |diff| buffer: threshold → 8-connected
+   components (two-pass union-find) → keep the top components by summed
+   diff energy → merge boxes sharing a horizontal or vertical band (a
+   strip shift decomposes into one component per label cluster; the
+   band test reunites them) → normalized rects. Returns null when the
+   change is essentially full-frame (union covers > 55%) or nothing
+   clears the threshold. */
+function changeBoxes(d, aw, ah){
+  const THR = 6;
+  const labels = new Int32Array(aw * ah);
+  const parent = [0];
+  const find = (x) => { while(parent[x] !== x){ parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+  let n = 0;
+  for(let y = 0; y < ah; y++){
+    for(let x = 0; x < aw; x++){
+      const i = y * aw + x;
+      if(d[i] <= THR) continue;
+      let m = 0;
+      if(x > 0 && labels[i - 1]) m = find(labels[i - 1]);
+      if(y > 0){
+        for(let dx = (x > 0 ? -1 : 0); dx <= (x < aw - 1 ? 1 : 0); dx++){
+          const l = labels[i - aw + dx];
+          if(!l) continue;
+          const r = find(l);
+          if(!m) m = r;
+          else if(r !== m){ if(r < m){ parent[m] = r; m = r; } else parent[r] = m; }
+        }
+      }
+      if(!m){ parent.push(++n); m = n; }
+      labels[i] = m;
+    }
+  }
+  if(!n) return null;
+  const stats = new Map();
+  for(let y = 0; y < ah; y++){
+    for(let x = 0; x < aw; x++){
+      const i = y * aw + x;
+      if(!labels[i]) continue;
+      const r = find(labels[i]);
+      let b = stats.get(r);
+      if(!b){ b = { x0: x, y0: y, x1: x, y1: y, e: 0, c: 0 }; stats.set(r, b); }
+      if(x < b.x0) b.x0 = x; if(x > b.x1) b.x1 = x;
+      if(y < b.y0) b.y0 = y; if(y > b.y1) b.y1 = y;
+      b.e += d[i]; b.c++;
+    }
+  }
+  let list = Array.from(stats.values()).sort((a, b) => b.e - a.e);
+  const top = list[0].e;
+  list = list.filter(b => b.e >= top * 0.1 && b.c >= 2).slice(0, 4);
+  if(!list.length) return null;
+  /* band merge: same horizontal band (≥60% y-overlap) or vertical band,
+     or plain adjacency (gap ≤ 2 px). Repeats until stable — bounded,
+     list holds at most 4 boxes. */
+  const ov = (a0, a1, b0, b1) => Math.min(a1, b1) - Math.max(a0, b0) + 1;
+  for(let merged = true; merged && list.length > 1;){
+    merged = false;
+    outer:
+    for(let i = 0; i < list.length; i++){
+      for(let j = i + 1; j < list.length; j++){
+        const A = list[i], B = list[j];
+        const oy = ov(A.y0, A.y1, B.y0, B.y1), ox = ov(A.x0, A.x1, B.x0, B.x1);
+        const bandY = oy >= 0.6 * Math.min(A.y1 - A.y0 + 1, B.y1 - B.y0 + 1);
+        const bandX = ox >= 0.6 * Math.min(A.x1 - A.x0 + 1, B.x1 - B.x0 + 1);
+        if(bandY || bandX || (ox >= -2 && oy >= -2)){
+          A.x0 = Math.min(A.x0, B.x0); A.y0 = Math.min(A.y0, B.y0);
+          A.x1 = Math.max(A.x1, B.x1); A.y1 = Math.max(A.y1, B.y1);
+          A.e += B.e; A.c += B.c;
+          list.splice(j, 1); merged = true;
+          break outer;
+        }
+      }
+    }
+  }
+  list.sort((a, b) => b.e - a.e);
+  list = list.slice(0, 3);
+  let cover = 0;
+  for(const b of list) cover += (b.x1 - b.x0 + 1) * (b.y1 - b.y0 + 1);
+  if(cover / (aw * ah) > 0.55) return null;
+  const PAD = 1.25;
+  return list.map(b => {
+    const x = Math.max(0, b.x0 - PAD) / aw, y = Math.max(0, b.y0 - PAD) / ah;
+    const x2 = Math.min(aw, b.x1 + 1 + PAD) / aw, y2 = Math.min(ah, b.y1 + 1 + PAD) / ah;
+    return { x, y, w: x2 - x, h: y2 - y };
+  });
 }
 /* Play the clip once and score every presented frame against its
    predecessor. Returns {segs, firstPt, frameDur} shaped for the
@@ -606,7 +748,8 @@ async function playScanFrames(vid, onStep, cancelled){
           let g = null;
           try { cx.drawImage(vid, 0, 0, aw, ah); g = grayFrame(cx, aw, ah); } catch (_){ return fin(false); }
           if(prevG){
-            segs.push({ b: { t }, score: blockDiff(prevG, g, aw, ah) });
+            const sp = scorePair(prevG, g, aw, ah);
+            segs.push({ b: { t }, score: sp.score, boxes: sp.boxes });
             deltas.push(t - lastT);
             /* skip detector: media-time deltas can't expose skipping
                (a saturated compositor presents every vsync, so the
@@ -646,15 +789,18 @@ async function playScanFrames(vid, onStep, cancelled){
     vid.style.cssText = '';
   }
 }
-/* Pick the timestamps worth keeping from a metadata-ready <video>.
-   Resolves an ascending array of seconds, or null when cancelled().
+/* Pick the moments worth keeping from a metadata-ready <video>.
+   Resolves an ascending array of { t, boxes } — t in seconds, boxes =
+   up to 3 normalized {x,y,w,h} rects around the regions that changed at
+   that moment, or null (establishing frame, even-fallback fillers,
+   essentially-full-frame cuts). Resolves null when cancelled().
      onStep(i, total) — scan progress
      cancelled()      — checked at every stage boundary and inside every
                         loop so an abandoned run stands down quietly */
 export async function extractKeyframeTimes(vid, { onStep = () => {}, cancelled = () => false } = {}){
   const duration = vid.duration;
   const REFINE_MIN = 0.125;     /* s — seek-scan resolution floor; finer adds nothing to a contact sheet */
-  const STRONG = 12;            /* worst-block mean abs diff (0..255) clearly above compression flutter */
+  const STRONG = 12;            /* worst-channel change score (0..255) clearly above compression flutter */
   let segs, firstPt, frameDur = 0;
   const played = await playScanFrames(vid, onStep, cancelled);
   if(cancelled()) return null;
@@ -686,7 +832,10 @@ export async function extractKeyframeTimes(vid, { onStep = () => {}, cancelled =
       const cur = { t: duration * (i + 0.5) / COARSE, g: null };
       cur.g = await sampleAt(cur.t);
       if(!firstPt) firstPt = cur;
-      if(prev) segs.push({ a: prev, b: cur, score: blockDiff(prev.g, cur.g, aw, ah) });
+      if(prev){
+        const sp = scorePair(prev.g, cur.g, aw, ah);
+        segs.push({ a: prev, b: cur, score: sp.score, boxes: sp.boxes });
+      }
       prev = cur;
     }
     /* refinement — two priorities per round. (1) Split the biggest scored
@@ -706,9 +855,10 @@ export async function extractKeyframeTimes(vid, { onStep = () => {}, cancelled =
          zero-score halves would erase the only evidence of a real cut;
          mark it instead so the budget isn't burned retrying. */
       if(!mid.g){ seg.noRefine = true; return; }
+      const s1 = scorePair(seg.a.g, mid.g, aw, ah), s2 = scorePair(mid.g, seg.b.g, aw, ah);
       segs.splice(idx, 1,
-        { a: seg.a, b: mid, score: blockDiff(seg.a.g, mid.g, aw, ah) },
-        { a: mid, b: seg.b, score: blockDiff(mid.g, seg.b.g, aw, ah) });
+        { a: seg.a, b: mid, score: s1.score, boxes: s1.boxes },
+        { a: mid, b: seg.b, score: s2.score, boxes: s2.boxes });
     };
     for(let r = 0; r < REFINE; r++){
       if(cancelled()) return null;
@@ -748,15 +898,19 @@ export async function extractKeyframeTimes(vid, { onStep = () => {}, cancelled =
      0-score point is just empty footage, and letting it claim a
      slot would crowd out the burst points the later passes exist for
      (static clips fill via the even fallback instead). */
-  const scores = segs.map(seg => ({ t: seg.b.t, score: seg.score }))
+  const scores = segs.map(seg => ({ t: seg.b.t, score: seg.score, boxes: seg.boxes || null }))
     .filter(s => s.score > Math.max(3, mean * 0.5))
     .sort((x, y) => y.score - x.score);
-  const picked = firstPt && firstPt.g ? [firstPt.t] : [];
+  /* picked entries are {t, boxes}: the change boxes travel with the
+     time they were scored at, so the extraction pass can burn them
+     into that exact frame. The establishing frame and the even
+     fallback carry none — they weren't picked FOR a change. */
+  const picked = firstPt && firstPt.g ? [{ t: firstPt.t, boxes: null }] : [];
   const pickWith = (gap, limit) => {
     const cap = Math.min(N, limit || N);
     for(const s of scores){
       if(picked.length >= cap) break;
-      if(picked.every(p => Math.abs(p - s.t) >= gap)) picked.push(s.t);
+      if(picked.every(p => Math.abs(p.t - s.t) >= gap)) picked.push({ t: s.t, boxes: s.boxes });
     }
   };
   /* three passes: duration/N spacing first, which by construction cannot
@@ -775,15 +929,15 @@ export async function extractKeyframeTimes(vid, { onStep = () => {}, cancelled =
   if(frameDur) pickWith(frameDur * 0.9);
   for(let i = 1; picked.length < N && i <= N; i++){
     const tEven = duration * i / (N + 1);
-    if(picked.every(p => Math.abs(p - tEven) >= duration / (N * 2))) picked.push(tEven);
+    if(picked.every(p => Math.abs(p.t - tEven) >= duration / (N * 2))) picked.push({ t: tEven, boxes: null });
   }
-  picked.sort((a, b) => a - b);
+  picked.sort((a, b) => a.t - b.t);
   /* play-scan times are exact frame PTS values; seeking back to an
      exact boundary can land on the previous frame through float
      rounding. Half a frame in lands mid-presentation, unambiguous.
      Clamp short of duration itself — an exact-EOF seek may present
      nothing to draw (Safari) or hang the seeked event. */
-  return frameDur ? picked.map(p => Math.min(duration - frameDur / 4, p + frameDur / 2)) : picked;
+  return frameDur ? picked.map(p => ({ t: Math.min(duration - frameDur / 4, p.t + frameDur / 2), boxes: p.boxes })) : picked;
 }
 
 /* The whole pipeline: analyze → extract → contact sheet → pack.
@@ -861,14 +1015,15 @@ export async function videoToFramesZip(file, options){
          video) would otherwise spike past 100 MB. The thumbs exist for
          the contact sheet — an overview, where reduced size is plenty;
          the full-resolution frames are right there in the ZIP. */
-      const frames = [];   /* {thumb, blob} */
+      const frames = [];   /* {thumb, blob, boxed} */
       for(let i = 0; i < times.length; i++){
         if(cancelled()) return null;
         step('extract', 45 + Math.round((i + 1) / times.length * 40), { done: i + 1, total: times.length });
         try {
-          await seekVideoFrame(vid, times[i]);
+          await seekVideoFrame(vid, times[i].t);
           if(cancelled()) return null;
-          const full = captureVideoFrame(vid, i, times[i]);
+          const full = captureVideoFrame(vid, i, times[i].t);
+          const boxed = drawChangeBoxes(full, times[i].boxes);
           const blob = await new Promise(resolve => full.toBlob(resolve, 'image/jpeg', 0.90));
           if(!blob) continue;
           /* Sheet cells cap at 420 px: half of a 1536 px frame across a
@@ -880,7 +1035,7 @@ export async function videoToFramesZip(file, options){
           thumb.width = tw;
           thumb.height = Math.max(1, Math.round(full.height * tw / full.width));
           thumb.getContext('2d').drawImage(full, 0, 0, thumb.width, thumb.height);
-          frames.push({ thumb, blob });
+          frames.push({ thumb, blob, boxed });
         } catch (_){}
       }
       if(cancelled()) return null;
@@ -924,7 +1079,10 @@ export async function videoToFramesZip(file, options){
       const zipBlob = buildZip(entries);
       const baseName = (file.name || 'video').replace(/\.[^.]+$/, '');
       const zipFile = new File([zipBlob], baseName + '-frames.zip', { type: 'application/zip' });
-      return { file: zipFile, sheet: sheetBlob, frameCount: kept.length, duration };
+      /* boxedCount = frames that carry burned-in change outlines AFTER
+         thinning, so a caller describing the archive only mentions the
+         overlay when it actually survived into the ZIP. */
+      return { file: zipFile, sheet: sheetBlob, frameCount: kept.length, duration, boxedCount: kept.filter(f => f.boxed).length };
     } catch (e){
       /* the page folds every unexpected failure in this stretch into the
          same "could not extract" outcome; coded errors pass through */
