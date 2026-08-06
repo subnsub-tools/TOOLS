@@ -1,7 +1,7 @@
-# Markup Relay — upload client
+# Relay — upload client
 
 Batch-upload orchestration, the text-paste lane, and the video → keyframes
-pipeline behind the Markup Relay tool on [subnsub.com](https://subnsub.com)
+pipeline behind the Relay tool on [subnsub.com](https://subnsub.com)
 (drop a file for a short-lived link, or paste text for one that can sit
 there far longer; also the standalone `/relay` page — the directory name
 `link` is the tool's unchanged internal id). Published so the client-side

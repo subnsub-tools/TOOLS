@@ -62,8 +62,8 @@ about shapes:
 | [Speed](tools/speed/) | `speed-orchestrate.js` | Measurement orchestration + scoring around the speed-test engine. |
 | [My IP](tools/myip/) | `ip-exposure.js` | Local-address probing + IP classification and exposure summary. |
 | [Clipboard](tools/clipboard/) | `clipboard-core.js` | Clipboard interop layer — Safari-safe writes, guarded image decode. |
-| [Markup Relay](tools/relay/) | `relay-upload.js` | Upload orchestration — batching, concurrency, per-lane lifetimes, text-paste lane. |
-| [Transfer](tools/lan/) | `lan-transfer.js` | WebRTC P2P file transfer — chunking, resume, streaming sink. |
+| [Relay](tools/relay/) | `relay-upload.js` | Upload orchestration — batching, concurrency, per-lane lifetimes, text-paste lane. |
+| [Transfer](tools/transfer/) | `transfer.js` | WebRTC P2P file transfer — chunking, resume, streaming sink. |
 | [Melody](tools/melody/) | `melody-core.js` | WebAudio synth, melody format, MIDI (SMF) import. |
 
 Each directory is self-contained: one dependency-free module, one plain

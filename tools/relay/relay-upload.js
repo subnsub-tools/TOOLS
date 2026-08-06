@@ -1,5 +1,5 @@
 /* File-share upload client — batch orchestration, the link-lifetime model,
-   and the video → keyframes ZIP pipeline. Logic of the Markup Relay tool
+   and the video → keyframes ZIP pipeline. Logic of the Relay tool
    on subnsub.com (drop a file for a short-lived link, or paste text for
    one that can sit there far longer), kept in lockstep with the in-page
    version. The directory name `link` is the tool's unchanged internal id.

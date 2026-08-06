@@ -1,15 +1,15 @@
-# LAN File Transfer
+# Transfer
 
 Send files device-to-device over a direct WebRTC data channel — discovery
 hands the devices to each other, then the bytes never touch a server. This is
 the engine of the [Transfer tool on subnsub.com](https://subnsub.com)
-(`/lan`), published so the "your files go straight to the other device"
+(`/transfer`), published so the "your files go straight to the other device"
 claim is auditable: the chunked-transfer engine, backpressure, resume and
 trust logic here are kept in lockstep with the in-page version.
 
 ## Files
 
-- [`lan-transfer.js`](lan-transfer.js) — the module: `TransferNode`,
+- [`transfer.js`](transfer.js) — the module: `TransferNode`,
   `BroadcastChannelDiscovery`, sinks (`FSASink`, `MemSink`,
   `fileWritableInDir`, `supportsFSA`), helpers (`deviceLabel`, `genCode`,
   `cleanCode`), constants (`RESUME_GRACE`, `MEM_HARD_CAP`)
@@ -20,7 +20,7 @@ trust logic here are kept in lockstep with the in-page version.
 ## Usage
 
 ```js
-import { TransferNode, deviceLabel } from './lan-transfer.js';
+import { TransferNode, deviceLabel } from './transfer.js';
 
 const node = new TransferNode({
   name: deviceLabel(),        // announced to peers

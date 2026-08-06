@@ -1,6 +1,6 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>LAN File Transfer — demo</title>
+<title>Transfer — demo</title>
 <style>
   body { font: 15px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; }
   button { font: inherit; margin: .25rem .5rem .25rem 0; }
@@ -10,7 +10,7 @@
   .muted { color: #666; }
 </style>
 
-<h1>LAN File Transfer — demo</h1>
+<h1>Transfer — demo</h1>
 <p>Open this page in <strong>two tabs of the same browser</strong>. The tabs
 discover each other over a BroadcastChannel (no server anywhere) and file
 bytes move over a direct WebRTC data channel. Click the other tab's device
@@ -23,7 +23,7 @@ it downloads on arrival.</p>
 <input type="file" id="file" hidden>
 
 <script type="module">
-  import { TransferNode, deviceLabel } from './lan-transfer.js';
+  import { TransferNode, deviceLabel } from './transfer.js';
 
   const $ = (id) => document.getElementById(id);
   const fmt = (n) => !Number.isFinite(n) ? '' : n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
