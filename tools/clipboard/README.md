@@ -87,5 +87,8 @@ On subnsub.com the Clipboard tab is a signed-in feature: the cross-device
 image slots are kept by the site's server under the signed-in account —
 the server is the list, slot counts and byte caps are enforced there, and
 this module only receives the bytes the page has already fetched. The
-text-snippet history rides the account's settings sync. Neither storage
-layer is part of this module.
+text-snippet history rides the account's settings sync, under that sync's
+contract that an empty collection is stored as an *absent* key, never as
+`[]` (otherwise every signed-in load would count the cleared key as a
+change and reload the page). Neither storage layer is part of this
+module.

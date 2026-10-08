@@ -77,6 +77,17 @@ clock.read();                        // { time: '3:07:42', dayPeriod: 'PM', date
 - No DOM, no storage, no timers of its own — rendering and persistence
   belong to the caller. On the site, the 12/24-hour choice and the picked
   time zone persist per account; here they are plain constructor options.
+- **Stored preferences can change underneath a page.** On the site the
+  account's settings sync projects another device's edit into storage
+  mid-session, and another tab can write the same keys. The rule the site
+  follows (since 2026-08-16): a page whose in-memory preferences predate
+  the last sync must never write them back — it re-reads storage the
+  moment storage changes and rebuilds its clock (the equivalent of a new
+  `createClock()`) from the fresh values. Only *configuration* is
+  refreshed that way; a running countdown or stopwatch is memory-only
+  state and keeps ticking untouched. The engines here hold no
+  preferences, so that reconcile is the host's job — but a host that
+  persists `hour12` / `timeZone` should honour the same rule.
 - `createClock` is Intl end to end: an invalid `timeZone` falls back to
   the system clock, an invalid `locale` to the runtime default — same
   fallbacks as the site.
