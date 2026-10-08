@@ -5,9 +5,10 @@
    The whole tab consumes ONE canonical payload, whichever upstream
    produced it (see the README for the proxy contract):
 
-     { ok, location: { name, country, lat, lon },
+     { ok, location: { name, country, lat, lon, timezone,
+                       utc_offset_seconds },
        current:  { temp_c, temp_f, feelslike_c, feelslike_f, humidity,
-                   wind_kph, wind_mph, wind_dir, condition, icon,
+                   wind_kph, wind_mph, wind_dir, wind_deg, condition, icon,
                    is_day, uv, pressure_mb, vis_km },
        forecast: [ { date, maxtemp_c/f, mintemp_c/f, condition, icon,
                      rain_chance, hours: [ { time, temp_c/f, icon,
@@ -37,7 +38,11 @@
       Open-Meteo → canonical-payload normaliser, including the metric →
       imperial conversions.
    3. The display shaping of the canonical payload: °C/°F selection, the
-      next-24-hours strip and the 3-day min/max range bars. */
+      wind reading (km/h · m/s · Beaufort · mph, 16-point compass from the
+      bearing), visibility, the city's own clock, the next-48-hours strip
+      and the 3-day min/max range bars.
+   4. The favourites model: a saved city's identity is its coordinate pair,
+      not its display name, so 東京 and Tokyo fold into one favourite. */
 
 /* ── query script detection / geocoding language pick ──────────────── */
 
@@ -283,6 +288,7 @@ export const windDir = (deg) => {
 };
 
 const clip = (s, n) => (typeof s === 'string' ? s.slice(0, n) : null);
+const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 
 /* ── Open-Meteo → canonical payload ──────────────────────────────────
    data = a parsed open-meteo.com /v1/forecast response (current +
@@ -338,6 +344,10 @@ export function normalizeOpenMeteo(data, geoName, geoCountry){
       name: clip(geoName || data.timezone, 60),
       country: clip(geoCountry, 40),
       lat: data.latitude, lon: data.longitude,
+      /* the city's wall clock — cityClock() reads these; the zone name
+         knows the city's DST, the fixed offset is the fallback */
+      timezone: clip(data.timezone, 60),
+      utc_offset_seconds: num(data.utc_offset_seconds),
     },
     current: {
       temp_c: cur.temperature_2m ?? null,
@@ -347,7 +357,9 @@ export function normalizeOpenMeteo(data, geoName, geoCountry){
       humidity: cur.relative_humidity_2m ?? null,
       wind_kph: cur.wind_speed_10m ?? null,
       wind_mph: cur.wind_speed_10m != null ? Math.round(cur.wind_speed_10m * 0.6214 * 10) / 10 : null,
-      wind_dir: windDir(cur.wind_direction_10m || 0),
+      /* wind_dir is for reading, wind_deg is for computing (windDirStr
+         draws its 16-point label from the bearing) */
+      wind_dir: windDir(cur.wind_direction_10m || 0), wind_deg: num(cur.wind_direction_10m),
       condition: wmoCondition(cur.weather_code),
       icon: wmoIcon(cur.weather_code || 0, isDay),
       is_day: isDay, uv: cur.uv_index || null,
@@ -405,27 +417,82 @@ export function dayName(dateStr, opts){
   } catch (_) { return dateStr; }
 }
 
-/* The hourly strip: up to the next 24 forecast hours across day
-   boundaries — today's already-past hours are skipped and the current
-   hour is flagged isNow. */
-export function upcomingHours(forecast, now){
+/* ── the city's own clock ──
+   Every row the strips draw is stamped on the CITY's wall clock (the
+   proxy's providers all report local time), so "now" has to be read off
+   that clock too. The viewer's getHours() was right only for a city in the
+   viewer's own zone, and toISOString() handed over the UTC date besides:
+   from midnight to 08:00 in Beijing the strip lost its Now tile and led
+   with hours already gone, and Shanghai looking at New York at 15:30 drew
+   New York's 15:00 as Now while it was 03:30 there. The zone name wins (it
+   knows the city's DST), the fixed offset is the fallback for a payload
+   carrying only that, and the viewer's LOCAL date is the last resort.
+   data = the canonical payload (its location is read); now = Date/epoch,
+   default the clock. → { date: 'YYYY-MM-DD', hour: 0–23 } */
+export function cityClock(data, now){
+  const loc = (data && data.location) || {};
+  now = now != null ? new Date(now) : new Date();
+  if (loc.timezone){
+    try {
+      const p = {};
+      new Intl.DateTimeFormat('en-US', { timeZone: loc.timezone, year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', hourCycle:'h23' })
+        .formatToParts(now).forEach(x => { p[x.type] = x.value; });
+      const hr = parseInt(p.hour, 10);
+      if (p.year && p.month && p.day && isFinite(hr)) return { date: p.year + '-' + p.month + '-' + p.day, hour: hr % 24 };
+    } catch (_) {}
+  }
+  const off = loc.utc_offset_seconds;
+  if (typeof off === 'number' && isFinite(off)){
+    const t = new Date(now.getTime() + off * 1000);
+    return { date: t.toISOString().slice(0, 10), hour: t.getUTCHours() };
+  }
+  const m = now.getMonth() + 1, dd = now.getDate();
+  return { date: now.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (dd < 10 ? '0' : '') + dd, hour: now.getHours() };
+}
+
+/* Identity of the hour the strip was drawn for: the Now tile moves when the
+   city's hour does, so the page redraws the strip (no fetch) whenever this
+   key changes between ticks. */
+export const hourStripKey = (clock) => clock.date + 'T' + clock.hour;
+
+/* The hourly strip: up to the next 48 forecast hours across day boundaries
+   (opts.span). Everything before the city's current hour is gone — a whole
+   earlier date included, which a forecast cached across the city's midnight
+   still leads with — and the current hour is flagged isNow. Each row
+   carries its date, and the first hour of each new day is flagged newDay so
+   23:00 doesn't run straight into 00:00 with nothing to say a day turned
+   (the page labels it with dayName(row.date, { baseDate })).
+   With opts.selectedDate — a day picked in the daily list — the strip shows
+   that day's own hours instead, elapsed ones included (the current hour
+   still wears Now); a date that carries no hours falls back to the run.
+   clock = cityClock()'s { date, hour }; a Date/epoch is accepted for the
+   viewer's own zone (the last-resort branch above). */
+export function upcomingHours(forecast, clock, opts){
   if (!forecast || !forecast.length) return [];
-  now = now ? new Date(now) : new Date();
-  const curHr = now.getHours();
-  const todayStr = now.toISOString().slice(0, 10);
+  opts = opts || {};
+  const span = opts.span > 0 ? opts.span : 48;
+  const clk = (clock && typeof clock === 'object' && typeof clock.date === 'string') ? clock : cityClock(null, clock);
+  const curHr = clk.hour, todayStr = clk.date;
+  const row = (day, h) => ({
+    time: h.time, date: day.date, temp_c: h.temp_c, temp_f: h.temp_f, icon: h.icon,
+    rain: h.rain_chance, isNow: day.date === todayStr && parseInt(h.time.slice(0, 2), 10) === curHr,
+  });
   const hours = [];
-  for (let di = 0; di < forecast.length && hours.length < 24; di++) {
-    const day = forecast[di];
-    for (let hi = 0; hi < (day.hours || []).length && hours.length < 24; hi++) {
-      const h = day.hours[hi];
-      const hNum = parseInt(h.time.slice(0, 2), 10);
-      if (day.date === todayStr && hNum < curHr) continue;
-      hours.push({
-        time: h.time, temp_c: h.temp_c, temp_f: h.temp_f, icon: h.icon,
-        rain: h.rain_chance, isNow: day.date === todayStr && hNum === curHr,
-      });
+  const sel = opts.selectedDate ? forecast.find(d => d.date === opts.selectedDate && d.hours && d.hours.length) : null;
+  if (sel) {
+    for (const h of sel.hours) hours.push(row(sel, h));
+  } else {
+    for (let di = 0; di < forecast.length && hours.length < span; di++) {
+      const day = forecast[di];
+      for (let hi = 0; hi < (day.hours || []).length && hours.length < span; hi++) {
+        const h = day.hours[hi];
+        const hNum = parseInt(h.time.slice(0, 2), 10);
+        if (day.date < todayStr || (day.date === todayStr && hNum < curHr)) continue;
+        hours.push(row(day, h));
+      }
     }
   }
+  hours.forEach((h, i) => { h.newDay = i > 0 && !h.isNow && h.date !== hours[i - 1].date; });
   return hours;
 }
 
@@ -457,4 +524,161 @@ export function dailyBars(forecast, fahrenheit){
       width: (((dhi - dlo) / range) * 100).toFixed(1),
     };
   });
+}
+
+/* ── the wind reading ────────────────────────────────────────────────
+   The payload carries km/h and mph; the page lets the wind have a unit of
+   its own because much of the world says m/s, and China and Japan a
+   Beaufort force (3级). '' follows the °C/°F switch. */
+export const WIND_UNITS = ['kmh', 'ms', 'bft', 'mph'];
+
+/* The unit in force: the reader's pick when it is one of WIND_UNITS, else
+   the temperature switch's (mph for °F, km/h for °C). */
+export function windUnit(pick, fahrenheit){
+  return WIND_UNITS.indexOf(pick) >= 0 ? pick : (fahrenheit ? 'mph' : 'kmh');
+}
+/* Pressing the reading steps km/h → m/s → force → mph → km/h. */
+export function nextWindUnit(unit){
+  return WIND_UNITS[(WIND_UNITS.indexOf(unit) + 1) % WIND_UNITS.length];
+}
+
+/* Beaufort force from km/h — the lower bound of each force from 1 to 12. */
+export const BFT_KMH = [1, 6, 12, 20, 29, 39, 50, 62, 75, 89, 103, 118];
+export function beaufort(kph){
+  let n = 0;
+  while (n < BFT_KMH.length && kph >= BFT_KMH[n]) n++;
+  return n;
+}
+
+/* Speed with its unit, in the given unit (see windUnit). mph is derived from
+   km/h when the payload lacks it; m/s keeps one decimal; Beaufort is
+   rendered by opts.force(n) ("Force 3" by default — the site i18n's it,
+   3级 in Chinese). '—' when there is no reading. Works for the gust too. */
+export function windSpeedStr(kph, mph, unit, opts){
+  if (unit === 'mph'){
+    if (mph == null && kph != null) mph = Math.round(kph * 0.6214 * 10) / 10;
+    return mph != null ? mph + ' mph' : '—';
+  }
+  if (kph == null) return '—';
+  if (unit === 'ms') return (kph / 3.6).toFixed(1) + ' m/s';
+  if (unit === 'bft'){
+    const n = beaufort(kph);
+    return (opts && typeof opts.force === 'function') ? opts.force(n) : 'Force ' + n;
+  }
+  return kph + ' km/h';
+}
+
+/* 16 compass points, clockwise from north. The page injects the reader's
+   language; a list that isn't 16 long is ignored. */
+export const COMPASS16 = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+export function windDir16(deg, names){
+  const list = (Array.isArray(names) && names.length === 16) ? names : COMPASS16;
+  return list[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
+}
+
+/* The direction the wind blows FROM, for a payload's `current`: taken from
+   the bearing, which every provider reports, rather than upstream's label —
+   one provider printed English "NNE" on every UI while another printed
+   Chinese "东北风", so one panel read two ways depending on the city. The
+   label is the fallback. A direction means nothing under ~1 km/h (calm is
+   still reported as a bearing), so the page shows none below that. */
+export function windDirStr(current, names){
+  const deg = current && current.wind_deg;
+  if (typeof deg === 'number' && isFinite(deg)) return windDir16(deg, names);
+  return (current && current.wind_dir) ? String(current.wind_dir) : '';
+}
+
+/* Visibility on the temperature switch too: km, or miles for °F readers.
+   Under 1 keeps a decimal, since 0.4 and 0 are very different fogs. '' when
+   the payload has none. */
+export function visStr(km, fahrenheit){
+  if (km == null || !isFinite(km)) return '';
+  const v = fahrenheit ? km * 0.621371 : km;
+  return (v < 1 ? v.toFixed(1) : String(Math.round(v))) + (fahrenheit ? ' mi' : ' km');
+}
+
+/* ── favourites: place identity ──────────────────────────────────────
+   A favourite is { name, country, lat?, lon? }. Its name is a DISPLAY
+   string, localized by whichever language the city was searched in —
+   never its identity: 東京 and Tokyo, 曼谷 and Bangkok each stood as two
+   favourites. No provider-independent city id exists across the proxy's
+   chain, so the one stable thing every response carries is the coordinate
+   pair; two places within 0.05° are the same city (the same nearness
+   mergeNominatimLead uses to fold two sources into one hit). */
+export const SAME_PLACE_DEG = 0.05;
+
+/* Coordinates as REAL numbers, or null. A stored favourite can carry
+   numeric STRINGS (a hand-edited export), and the global isFinite('35.68')
+   says true, so they are coerced here; out-of-range values are dropped
+   rather than clamped — they are not a place. */
+export function coordsOf(p){
+  if (!p || p.lat == null || p.lon == null) return null;
+  const la = Number(p.lat), lo = Number(p.lon);
+  if (!isFinite(la) || !isFinite(lo) || la < -90 || la > 90 || lo < -180 || lo > 180) return null;
+  return { lat: la, lon: lo };
+}
+export function nearLoc(a, b){
+  const x = coordsOf(a), y = coordsOf(b);
+  return !!x && !!y && Math.abs(x.lat - y.lat) < SAME_PLACE_DEG && Math.abs(x.lon - y.lon) < SAME_PLACE_DEG;
+}
+
+/* Best known place for a favourite: its own coords when it carries them,
+   else whatever `resolve(f)` knows — the page passes a lookup into its
+   per-name weather cache (the location its card fetch resolved). A legacy
+   entry with neither returns null, so identity then falls back to the name
+   and nothing is ever merged without coordinate proof. */
+export function favPlace(f, resolve){
+  if (coordsOf(f)) return f;
+  const loc = (typeof resolve === 'function') ? resolve(f) : null;
+  return loc || null;
+}
+
+/* THE identity predicate — every same-city decision (star state, removal,
+   dedupe, active card) goes through here so they can never disagree. When
+   BOTH sides have coords, coords ALONE decide: two favourites may share a
+   display name yet be different cities (Springfield IL/MO, Valencia ES/VE),
+   and a name match must not merge — or delete — the other one. The name is
+   only the identity of last resort while either side lacks coordinates.
+   `ref` may be a favourite or a payload's location. */
+export function favSame(f, ref, resolve){
+  if (!f || !ref) return false;
+  const a = favPlace(f, resolve), b = favPlace(ref, resolve);
+  if (coordsOf(a) && coordsOf(b)) return nearLoc(a, b);
+  return !!f.name && f.name === ref.name;
+}
+export function favMatch(favs, loc, resolve){
+  if (!loc) return -1;
+  for (let i = 0; i < favs.length; i++) if (favSame(favs[i], loc, resolve)) return i;
+  return -1;
+}
+
+/* A new favourite from a payload's location: the display name plus the
+   identity stamp, coords rounded to 4 decimals (~10 m). */
+export function favEntry(loc){
+  const entry = { name: loc.name, country: loc.country || '' };
+  const c = coordsOf(loc);
+  if (c){ entry.lat = Math.round(c.lat * 1e4) / 1e4; entry.lon = Math.round(c.lon * 1e4) / 1e4; }
+  return entry;
+}
+
+/* One pass over a stored list: drop every entry that is the same place as
+   an earlier one (the front is the most recent star — the latest choice of
+   name wins), and stamp missing coords onto survivors so their identity
+   stops depending on a warm cache. Stamping also normalizes numeric strings
+   in place. Lists that collected duplicates before coords were stored heal
+   on their next pass. → { favs, dropped, changed } */
+export function dedupeFavs(favs, resolve){
+  const out = [], dropped = [];
+  let changed = false;
+  for (const f of favs || []) {
+    if (out.some(o => favSame(f, o, resolve))) { dropped.push(f); changed = true; continue; }
+    const pc = coordsOf(favPlace(f, resolve));
+    if (pc && (typeof f.lat !== 'number' || typeof f.lon !== 'number')) {
+      f.lat = Math.round(pc.lat * 1e4) / 1e4;
+      f.lon = Math.round(pc.lon * 1e4) / 1e4;
+      changed = true;
+    }
+    out.push(f);
+  }
+  return { favs: out, dropped, changed };
 }

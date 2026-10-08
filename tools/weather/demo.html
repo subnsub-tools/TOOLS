@@ -23,8 +23,17 @@ payload pipeline (Open-Meteo sample → normalise → display shaping).</p>
 
 <h2>2 · Payload shaping</h2>
 <label><input type="checkbox" id="fahr"> show °F</label>
+<label>Wind unit <select id="wind"><option value="">follow °C/°F</option><option value="kmh">km/h</option><option value="ms">m/s</option><option value="bft">Beaufort</option><option value="mph">mph</option></select></label>
+<label>Hourly strip <select id="sel"><option value="">next 48 hours</option></select></label>
 <button id="shape">Normalise sample forecast</button>
 <pre id="wx-out">…</pre>
+
+<h2>3 · Favourites: place identity</h2>
+<p>A saved list with 東京 and Tokyo (same coords), two Springfields (same
+name, different places) and a legacy entry without coords whose card fetch
+resolved them.</p>
+<button id="heal">Dedupe sample list</button>
+<pre id="fav-out">…</pre>
 
 <script type="module">
   import {
@@ -32,6 +41,8 @@ payload pipeline (Open-Meteo sample → normalise → display shaping).</p>
     mergeGeoPools, rankGeoPool, needsNominatimRescue,
     parseNominatim, mergeNominatimLead, cjkQueryPlan, geoSuggestions,
     normalizeOpenMeteo, tempStr, tempNum, dayName, upcomingHours, dailyBars,
+    cityClock, hourStripKey, windUnit, windSpeedStr, windDirStr, visStr,
+    favEntry, favMatch, dedupeFavs,
   } from './weather-core.js';
 
   const $ = (id) => document.getElementById(id);
@@ -111,16 +122,17 @@ payload pipeline (Open-Meteo sample → normalise → display shaping).</p>
     $('geo-out').textContent = lines.join('\n');
   };
 
-  /* Sample Open-Meteo forecast response — 3 days, a few hours per day. */
-  const hoursOf = (date, temps) => temps.map((t, i) => [date + 'T' + String(9 + i).padStart(2, '0') + ':00', t]);
-  const H = [
-    ...hoursOf(dayISO(0), [24.1, 26.0, 27.6, 28.2]),
-    ...hoursOf(dayISO(1), [22.8, 24.4, 25.1, 24.0]),
-    ...hoursOf(dayISO(2), [23.5, 25.9, 27.0, 26.2]),
-  ];
-  function dayISO(off){ const d = new Date(); d.setDate(d.getDate() + off); return d.toISOString().slice(0, 10); }
+  /* Sample Open-Meteo forecast response — 3 full days of hours, dated on
+     the CITY's calendar (Tokyo), the way the real response is: that is what
+     lets the strip find "now" there rather than on the viewer's clock. */
+  const CITY_TZ = 'Asia/Tokyo';
+  const today = cityClock({ location: { timezone: CITY_TZ } }).date;
+  function dayISO(off){ return new Date(Date.parse(today + 'T00:00:00Z') + off * 86400000).toISOString().slice(0, 10); }
+  const hoursOf = (date, lo, hi) => Array.from({ length: 24 }, (_, h) =>
+    [date + 'T' + String(h).padStart(2, '0') + ':00', Math.round((lo + (hi - lo) * (1 - Math.cos((h - 4) / 24 * 2 * Math.PI)) / 2) * 10) / 10]);
+  const H = [...hoursOf(dayISO(0), 21.9, 28.2), ...hoursOf(dayISO(1), 20.4, 25.1), ...hoursOf(dayISO(2), 21.2, 27.0)];
   const SAMPLE_OM = {
-    latitude: 35.69, longitude: 139.69, timezone: 'Asia/Tokyo',
+    latitude: 35.69, longitude: 139.69, timezone: CITY_TZ, utc_offset_seconds: 32400,
     current: { temperature_2m: 27.4, apparent_temperature: 30.1, relative_humidity_2m: 68,
                weather_code: 2, wind_speed_10m: 12.5, wind_direction_10m: 135, is_day: 1,
                surface_pressure: 1009.6, uv_index: 5.4 },
@@ -140,22 +152,53 @@ payload pipeline (Open-Meteo sample → normalise → display shaping).</p>
     },
   };
 
+  [0, 1, 2].forEach(i => { const o = document.createElement('option'); o.value = dayISO(i); o.textContent = dayISO(i); $('sel').appendChild(o); });
+
   $('shape').onclick = () => {
     const f = $('fahr').checked;
     const body = normalizeOpenMeteo(SAMPLE_OM, '東京', 'Japan');
     const c = body.current;
+    const clock = cityClock(body);                       // the city's date + hour
+    const unit = windUnit($('wind').value, f);
+    const dir = c.wind_kph >= 1 ? windDirStr(c) : '';    // calm shows no direction
     const lines = [];
     lines.push(`${body.location.name}, ${body.location.country} — ${tempStr(c.temp_c, c.temp_f, f)}  ${c.condition}  [icon ${c.icon}]`);
-    lines.push(`feels ${tempNum(c.feelslike_c, c.feelslike_f, f)} · humidity ${c.humidity}% · wind ${f ? c.wind_mph + ' mph' : c.wind_kph + ' km/h'} ${c.wind_dir} · ${c.pressure_mb} hPa`);
-    lines.push('', '— next hours —');
-    for (const h of upcomingHours(body.forecast).slice(0, 8))
-      lines.push(`${h.isNow ? 'Now  ' : h.time}  ${tempNum(h.temp_c, h.temp_f, f)}  [${h.icon}]${h.rain > 0 ? '  ' + h.rain + '%' : ''}`);
+    lines.push(`feels ${tempNum(c.feelslike_c, c.feelslike_f, f)} · humidity ${c.humidity}% · wind ${dir} ${windSpeedStr(c.wind_kph, c.wind_mph, unit)} [${unit}] · ${c.pressure_mb} hPa` + (visStr(c.vis_km, f) ? ` · visibility ${visStr(c.vis_km, f)}` : ''));
+    lines.push(`city clock ${body.location.timezone}: ${clock.date} ${String(clock.hour).padStart(2, '0')}:00  (strip key ${hourStripKey(clock)})`);
+    const sel = $('sel').value;
+    lines.push('', sel ? `— ${dayName(sel, { baseDate: clock.date })}'s own hours —` : '— next 48 hours (first 30 shown) —');
+    for (const h of upcomingHours(body.forecast, clock, { selectedDate: sel || undefined }).slice(0, 30))
+      lines.push(`${h.isNow ? 'Now  ' : h.newDay ? dayName(h.date, { baseDate: clock.date }).padEnd(5) : h.time}  ${tempNum(h.temp_c, h.temp_f, f)}  [${h.icon}]${h.rain > 0 ? '  ' + h.rain + '%' : ''}`);
     lines.push('', '— 3-day bars (shared range) —');
     for (const b of dailyBars(body.forecast, f))
-      lines.push(`${dayName(b.date).padEnd(9)} ${tempNum(b.lo, b.lo, f)}–${tempNum(b.hi, b.hi, f)}  left ${b.left}% width ${b.width}%  [${b.icon}]${b.rain_chance > 0 ? '  ' + b.rain_chance + '%' : ''}`);
+      lines.push(`${dayName(b.date, { baseDate: clock.date }).padEnd(9)} ${tempNum(b.lo, b.lo, f)}–${tempNum(b.hi, b.hi, f)}  left ${b.left}% width ${b.width}%  [${b.icon}]${b.rain_chance > 0 ? '  ' + b.rain_chance + '%' : ''}`);
     $('wx-out').textContent = lines.join('\n');
   };
 
+  /* Favourites: the stored shape is { name, country, lat?, lon? }; a legacy
+     entry has no coords until a card fetch resolves them (the cache below). */
+  const SAMPLE_FAVS = [
+    { name: '東京', country: '日本', lat: '35.6895', lon: '139.6917' },      // numeric strings, as a hand-edited export
+    { name: 'Tokyo', country: 'Japan', lat: 35.68, lon: 139.69 },
+    { name: 'Springfield', country: 'United States', lat: 39.8, lon: -89.6 },
+    { name: 'Springfield', country: 'United States', lat: 37.2, lon: -93.3 },
+    { name: 'Osaka', country: 'Japan' },
+  ];
+  const SAMPLE_CACHE = { Osaka: { location: { name: 'Osaka-Shi', lat: 34.69, lon: 135.50 } } };
+  $('heal').onclick = () => {
+    const favs = SAMPLE_FAVS.map(f => ({ ...f }));
+    const lines = ['before: ' + favs.map(f => f.name).join(', ')];
+    const r = dedupeFavs(favs, f => (SAMPLE_CACHE[f.name] || {}).location);
+    lines.push('after:  ' + r.favs.map(f => `${f.name} (${f.lat}, ${f.lon})`).join(', '));
+    lines.push('dropped: ' + (r.dropped.map(f => f.name).join(', ') || '—') + '   changed: ' + r.changed);
+    const tokyo = { name: 'Tōkyō', country: 'Japan', lat: 35.6762, lon: 139.6503 };
+    lines.push(`is ${tokyo.name} starred? favMatch → ${favMatch(r.favs, tokyo)}   favEntry → ${JSON.stringify(favEntry(tokyo))}`);
+    $('fav-out').textContent = lines.join('\n');
+  };
+
+  $('wind').onchange = () => $('shape').click();
+  $('sel').onchange = () => $('shape').click();
   $('plan').click();
   $('shape').click();
+  $('heal').click();
 </script>
