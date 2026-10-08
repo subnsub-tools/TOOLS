@@ -11,8 +11,17 @@
                    wind_kph, wind_mph, wind_dir, wind_deg, condition, icon,
                    is_day, uv, pressure_mb, vis_km },
        forecast: [ { date, maxtemp_c/f, mintemp_c/f, condition, icon,
-                     rain_chance, hours: [ { time, temp_c/f, icon,
-                     rain_chance } ] } ] }        (3 days)
+                     rain_chance, uv, precip_mm, gust_kph/mph, sunrise,
+                     sunset, hours: [ { time, temp_c/f, icon, rain_chance,
+                     feelslike_c/f?, wind_kph/mph?, wind_deg?, gust_kph/mph?,
+                     uv?, precip_mm?, aqi? } ] } ],      (3 days)
+       history?: [ same as a forecast day, without hours ],
+       air?: { index (US EPA band 1-6), pm2_5, pm10, o3?, no2?, so2?, co? },
+       alerts?: [ { event, severity, expires, desc?, instruction? } ] }
+
+   An hour's extra readings ride where the serving provider has them and
+   are simply absent where it does not — the strip offers only the readings
+   the hours carry (hourMetrics).
 
    `icon` is a small shared vocabulary (sun, moon, cloud-sun, cloud-moon,
    cloud, overcast, cloud-rain-sun, cloud-rain-moon, mist, haze, wind,
@@ -296,6 +305,30 @@ const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
    geocoder's localized name for the place (Open-Meteo itself only knows
    coordinates). Metric→imperial conversions happen here so consumers
    never convert. */
+/* The rest of an hour, as the proxy adds it for every provider: what it
+   feels like, the wind (and the bearing it comes FROM) and its gusts, UV,
+   how much falls. Missing inputs leave their field out; the other unit is
+   derived when only one is given. Returns the row. */
+export function hourDetail(row, v){
+  const r1 = (x) => (Number.isFinite(x) ? Math.round(x * 10) / 10 : null);
+  if (Number.isFinite(v.feels_c)) {
+    row.feelslike_c = r1(v.feels_c);
+    row.feelslike_f = Number.isFinite(v.feels_f) ? r1(v.feels_f) : r1(v.feels_c * 9 / 5 + 32);
+  }
+  if (Number.isFinite(v.wind_kph)) {
+    row.wind_kph = r1(v.wind_kph);
+    row.wind_mph = Number.isFinite(v.wind_mph) ? r1(v.wind_mph) : r1(v.wind_kph * 0.6214);
+    if (Number.isFinite(v.wind_deg)) row.wind_deg = Math.round(v.wind_deg);
+    if (Number.isFinite(v.gust_kph)) {
+      row.gust_kph = r1(v.gust_kph);
+      row.gust_mph = Number.isFinite(v.gust_mph) ? r1(v.gust_mph) : r1(v.gust_kph * 0.6214);
+    }
+  }
+  if (Number.isFinite(v.uv)) row.uv = r1(v.uv);
+  if (Number.isFinite(v.precip_mm)) row.precip_mm = r1(v.precip_mm);
+  return row;
+}
+
 export function normalizeOpenMeteo(data, geoName, geoCountry){
   const cur = data.current || {};
   const hourly = data.hourly || {};
@@ -307,6 +340,12 @@ export function normalizeOpenMeteo(data, geoName, geoCountry){
   const hCodes = hourly.weather_code || [];
   const hRain = hourly.precipitation_probability || [];
   const hIsDay = hourly.is_day || [];
+  const hFeels = hourly.apparent_temperature || [];
+  const hWind = hourly.wind_speed_10m || [];
+  const hWindDeg = hourly.wind_direction_10m || [];
+  const hGust = hourly.wind_gusts_10m || [];
+  const hUv = hourly.uv_index || [];
+  const hPrecip = hourly.precipitation || [];
 
   const dDates = daily.time || [];
   const dMax = daily.temperature_2m_max || [];
@@ -318,13 +357,16 @@ export function normalizeOpenMeteo(data, geoName, geoCountry){
     const dayHours = [];
     for (let hi = 0; hi < hTimes.length; hi++) {
       if ((hTimes[hi] || '').startsWith(date)) {
-        dayHours.push({
+        dayHours.push(hourDetail({
           time: (hTimes[hi] || '').slice(11, 16),
           temp_c: hTemps[hi] ?? null,
           temp_f: hTemps[hi] != null ? Math.round((hTemps[hi] * 9 / 5 + 32) * 10) / 10 : null,
           icon: wmoIcon(hCodes[hi] || 0, hIsDay[hi] !== undefined ? !!hIsDay[hi] : true),
           rain_chance: hRain[hi] || 0,
-        });
+        }, {
+          feels_c: hFeels[hi], wind_kph: hWind[hi], wind_deg: hWindDeg[hi], gust_kph: hGust[hi],
+          uv: hUv[hi], precip_mm: hPrecip[hi],
+        }));
       }
     }
     return {
@@ -473,9 +515,10 @@ export function upcomingHours(forecast, clock, opts){
   const span = opts.span > 0 ? opts.span : 48;
   const clk = (clock && typeof clock === 'object' && typeof clock.date === 'string') ? clock : cityClock(null, clock);
   const curHr = clk.hour, todayStr = clk.date;
+  /* src: the forecast's own hour, for the readings beyond temperature */
   const row = (day, h) => ({
     time: h.time, date: day.date, temp_c: h.temp_c, temp_f: h.temp_f, icon: h.icon,
-    rain: h.rain_chance, isNow: day.date === todayStr && parseInt(h.time.slice(0, 2), 10) === curHr,
+    rain: h.rain_chance, src: h, isNow: day.date === todayStr && parseInt(h.time.slice(0, 2), 10) === curHr,
   });
   const hours = [];
   const sel = opts.selectedDate ? forecast.find(d => d.date === opts.selectedDate && d.hours && d.hours.length) : null;
@@ -494,6 +537,79 @@ export function upcomingHours(forecast, clock, opts){
   }
   hours.forEach((h, i) => { h.newDay = i > 0 && !h.isNow && h.date !== hours[i - 1].date; });
   return hours;
+}
+
+/* What the strip can show besides temperature: a reading counts when at
+   least half the hours on screen carry it (and two at the least), so a
+   reading the next hours mostly lack never draws a row of dashes.
+   → ['temp', 'feels', 'rain', 'wind', 'uv', 'air'] filtered, temp always. */
+export const HOUR_METRICS = [
+  ['temp', (h) => h.temp_c != null], ['feels', (h) => h.feelslike_c != null],
+  ['rain', (h) => h.precip_mm != null], ['wind', (h) => h.wind_kph != null],
+  ['uv', (h) => h.uv != null], ['air', (h) => h.aqi != null],
+];
+export function hourMetrics(hours){
+  return HOUR_METRICS.filter(([k, has]) => {
+    if (k === 'temp') return true;
+    const n = hours.filter(h => h.src && has(h.src)).length;
+    return n >= Math.max(2, hours.length / 2);
+  }).map(([k]) => k);
+}
+/* The WHO UV bands: 1 low (0-2) · 2 moderate (3-5) · 3 high (6-7) ·
+   4 very high (8-10) · 5 extreme (11+) */
+export const uvBand = (u) => (u < 3 ? 1 : u < 6 ? 2 : u < 8 ? 3 : u < 11 ? 4 : 5);
+/* An hour's fall: a tenth of a millimetre under 10 (a day's total is
+   rounded to whole millimetres from 1 up), 0 when dry; inches for °F */
+export function hourPrecipStr(mm, fahrenheit){
+  if (!Number.isFinite(mm)) return '';
+  if (fahrenheit) { const inch = mm / 25.4; return (inch < 0.005 ? '0' : inch < 1 ? inch.toFixed(2) : inch.toFixed(1)) + '"'; }
+  return (mm < 0.05 ? '0' : mm < 10 ? String(Math.round(mm * 10) / 10) : String(Math.round(mm))) + 'mm';
+}
+/* where the wind blows TO, for an arrow: the bearing it comes from + 180° */
+export const windToward = (deg) => (Number.isFinite(deg) ? (((deg + 180) % 360) + 360) % 360 : null);
+
+/* Yesterday's row from history[], when it is the day before forecast[0] */
+export function yesterdayRow(history, forecast){
+  const f0 = forecast && forecast[0];
+  if (!history || !history.length || !f0) return null;
+  const y = history[history.length - 1];
+  const d = (Date.parse(y.date + 'T00:00:00Z') - Date.parse(f0.date + 'T00:00:00Z')) / 86400000;
+  return d === -1 ? y : null;
+}
+/* Today's high against yesterday's in whole degrees of the unit on screen:
+   +4 warmer, -2 cooler, 0 the same; null when either is missing */
+export function vsYesterday(today, yesterday, fahrenheit){
+  const a = fahrenheit ? today.maxtemp_f : today.maxtemp_c;
+  const b = fahrenheit ? yesterday.maxtemp_f : yesterday.maxtemp_c;
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return Math.round(a) - Math.round(b);
+}
+/* A day's length in minutes from its "HH:MM" sunrise and sunset (null at
+   the poles, where the proxy nulls them) */
+export function dayLength(day){
+  const m = (t) => { const x = /^(\d{1,2}):(\d{2})$/.exec(t || ''); return x ? +x[1] * 60 + +x[2] : null; };
+  const a = day && m(day.sunrise), b = day && m(day.sunset);
+  return a != null && b != null && b > a ? b - a : null;
+}
+/* { minutes, delta, against: 'yesterday' | 'tomorrow' | null } — the turn
+   of the season in minutes, against yesterday when the card holds it,
+   else as tomorrow will be */
+export function daylight(today, yesterday, tomorrow){
+  const L = dayLength(today);
+  if (L == null) return null;
+  const Ly = yesterday ? dayLength(yesterday) : null, Lt = tomorrow ? dayLength(tomorrow) : null;
+  if (Ly != null) return { minutes: L, delta: L - Ly, against: 'yesterday' };
+  if (Lt != null) return { minutes: L, delta: Lt - L, against: 'tomorrow' };
+  return { minutes: L, delta: null, against: null };
+}
+/* The air's make-up beside its band: [{ key, label, value }] in µg/m³,
+   or [] when the reading has nothing beyond the particulates the band
+   line already names */
+export const POLLUTANTS = [['pm2_5', 'PM2.5'], ['pm10', 'PM10'], ['o3', 'O₃'], ['no2', 'NO₂'], ['so2', 'SO₂'], ['co', 'CO']];
+export function pollutants(air){
+  if (!air || air.index == null) return [];
+  const out = POLLUTANTS.filter(([k]) => Number.isFinite(air[k])).map(([key, label]) => ({ key, label, value: air[key] }));
+  return out.length > 2 ? out : [];
 }
 
 /* The daily rows: each day's low→high segment positioned inside the
