@@ -60,7 +60,7 @@ about shapes:
 | [Currency](tools/fx/) | `fx-convert.js` | Cross-rate math over a USD-base rate table, plus the history model — range stats, day move, sparkline path, majors and conversion ladders. |
 | [Stocks](tools/stocks/) | `stock-quotes.js` | Quote payload normalisation, change math, sparkline shaping. |
 | [Weather](tools/weather/) | `weather-core.js` | Geocoding query strategy (CJK-aware), weather-code mapping, the city clock behind the hourly strip, wind units and Beaufort, favourite-place identity; the hourly strip's readings, today against yesterday, the day's length and the air's make-up. |
-| [Speed](tools/speed/) | `speed-orchestrate.js` | Measurement plans, engine options and scoring around the speed-test engine, and which phases may be paused. |
+| [Speed](tools/speed/) | `speed-orchestrate.js` | Measurement plans, engine options and scoring around the speed-test engine, and which phases may be paused; what a result carries, how long a download takes, what holds each rating back, and this device's usual. |
 | [My IP](tools/myip/) | `ip-exposure.js` | Local-address probing, NAT mapping behaviour read off a two-server STUN gather, IP classification and exposure summary. |
 | [Clipboard](tools/clipboard/) | `clipboard-core.js` | Clipboard interop layer — Safari-safe writes, guarded image decode. |
 | [Relay](tools/relay/) | `relay-upload.js` | Upload orchestration — batching, concurrency, per-lane lifetimes, text-paste lane, which drops open as text instead of uploading, history pruning. |

@@ -314,3 +314,92 @@ export function mergeItems(server, local, deletedIds, cap){
   out.sort(function(a, b){ return b.savedAt - a.savedAt; });
   return out.slice(0, cap);
 }
+
+/* ── What a result means (the tab's "What this connection can do") ──
+   r is summarizeResult()'s shape: { down, up (bps), latency, jitter (ms),
+   loss (0-1), dlLat, ulLat (latency under load, ms) } — null where the
+   profile did not measure it. */
+
+/* Rules of thumb the streaming and conferencing services publish: a 4K
+   stream ~25 Mbps, an HD one ~5; an HD call wants 3 Mbps each way, latency
+   under load below 150 ms, jitter below 30, loss below 1%; 1080p cloud
+   gaming wants 25 Mbps down, 40 ms idle, 10 ms jitter, 0.5% loss. `needs`
+   are the readings a verdict cannot be given without; the rest count when
+   present. */
+export const USE_RULES = {
+  stream4k: 25e6, streamHd: 5e6,
+  call: { down: 3e6, up: 3e6, loaded: 150, jitter: 30, loss: 0.01, needs: ['down', 'up'] },
+  game: { down: 25e6, latency: 40, jitter: 10, loss: 0.005, needs: ['down', 'latency'] }
+};
+const loadedOf = (r) => (r.dlLat != null && r.ulLat != null ? Math.max(r.dlLat, r.ulLat) : (r.dlLat != null ? r.dlLat : r.ulLat));
+/* The first requirement a use misses: { key, value } (value in the
+   reading's own unit), { key: 'na' } when an essential reading is missing,
+   or null when it holds. key ∈ down | up | lat | load | jit | loss | na. */
+export function useMiss(r, need){
+  if (need.needs.some(k => r[k] == null)) return { key: 'na' };
+  if (need.down && r.down != null && r.down < need.down) return { key: 'down', value: r.down };
+  if (need.up && r.up != null && r.up < need.up) return { key: 'up', value: r.up };
+  if (need.latency && r.latency != null && r.latency > need.latency) return { key: 'lat', value: r.latency };
+  const ld = loadedOf(r);
+  if (need.loaded && ld != null && ld > need.loaded) return { key: 'load', value: ld };
+  if (need.jitter && r.jitter != null && r.jitter > need.jitter) return { key: 'jit', value: r.jitter };
+  if (need.loss && r.loss != null && r.loss > need.loss) return { key: 'loss', value: r.loss };
+  return null;
+}
+/* → { streams4k, streamsHd, call, game } — counts, and useMiss() verdicts */
+export function speedUses(r){
+  return {
+    streams4k: r.down != null ? Math.floor(r.down / USE_RULES.stream4k) : null,
+    streamsHd: r.down != null ? Math.floor(r.down / USE_RULES.streamHd) : null,
+    call: useMiss(r, USE_RULES.call),
+    game: useMiss(r, USE_RULES.game)
+  };
+}
+/* seconds to move `bytes` at `bps` (decimal gigabytes: 1 GB = 8e9 bits) */
+export const transferSeconds = (bytes, bps) => (bps > 0 ? bytes * 8 / bps : null);
+
+/* AIM's own scoring (the engine's internalConfig): each experience sums
+   points from its readings; the reading that lost the most of its best
+   is what holds the rating back. Under 10 points short is not "holding it
+   back" — that is one step down from the best. → reading name or null. */
+const AIM_POINTS = {
+  packetLoss: [[0.01, 0.05, 0.25, 0.5], [10, 5, 0, -10, -20]],
+  latency: [[10, 20, 50, 100, 500], [20, 10, 5, 0, -10, -20]],
+  loadedLatencyIncrease: [[10, 20, 50, 100, 500], [20, 10, 5, 0, -10, -20]],
+  jitter: [[10, 20, 100, 500], [10, 5, 0, -10, -20]],
+  download: [[1e6, 1e7, 5e7, 1e8], [0, 5, 10, 20, 30]]
+};
+export const AIM_INPUTS = {
+  streaming: ['latency', 'packetLoss', 'download', 'loadedLatencyIncrease'],
+  gaming: ['latency', 'packetLoss', 'loadedLatencyIncrease'],
+  rtc: ['latency', 'jitter', 'packetLoss', 'loadedLatencyIncrease']
+};
+export function aimPoints(metric, v){
+  const [dom, rng] = AIM_POINTS[metric];
+  let i = 0; while (i < dom.length && v >= dom[i]) i++;
+  return { got: rng[i], best: Math.max(rng[0], rng[rng.length - 1]) };
+}
+export function scoreBottleneck(r, experience){
+  const ld = loadedOf(r);
+  const val = { latency: r.latency, packetLoss: r.loss, download: r.down, jitter: r.jitter,
+                loadedLatencyIncrease: ld != null && r.latency != null ? ld - r.latency : null };
+  let worst = null, lost = 0;
+  for (const m of AIM_INPUTS[experience]) {
+    if (val[m] == null) continue;
+    const p = aimPoints(m, val[m]), l = p.best - p.got;
+    if (l > lost) { lost = l; worst = m; }
+  }
+  return lost >= 10 ? worst : null;
+}
+
+/* This device's usual: the median of up to the last 10 earlier clean runs
+   ({ d, u, l } = down bps, up bps, latency ms) against this one. Percent
+   for the speeds, milliseconds for latency; null with fewer than 3. */
+export function compareToUsual(log, r){
+  const prev = (log || []).slice(-10);
+  if (prev.length < 3) return null;
+  const md = medianOf(prev.map(x => x.d)), mu = medianOf(prev.map(x => x.u)), ml = medianOf(prev.map(x => x.l));
+  const pct = (a, b) => (a == null || !b ? null : Math.round((a / b - 1) * 100));
+  return { runs: prev.length, down: pct(r.down, md), up: pct(r.up, mu),
+           latency: r.latency != null && ml != null ? Math.round(r.latency - ml) : null };
+}

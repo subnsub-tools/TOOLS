@@ -158,3 +158,33 @@ gardening. `mergeItems()` exists because a slow list fetch can
 resolve after local saves/deletes — it reconciles instead of clobbering
 (dedupe by id, local first; deleted ids stay deleted; newest first;
 cap-trim).
+
+## What a result means
+
+The tab's "What this connection can do" card reads the summary
+(`summarizeResult()`'s shape) four ways:
+
+```js
+import { speedUses, transferSeconds, scoreBottleneck, compareToUsual } from './speed-orchestrate.js';
+
+const r = { down: 120e6, up: 20e6, latency: 15, jitter: 3, loss: 0, dlLat: 60, ulLat: 210 };
+speedUses(r);
+// { streams4k: 4, streamsHd: 24,
+//   call: { key: 'load', value: 210 },   // latency under load over 150 ms
+//   game: null }                          // holds
+transferSeconds(10e9, r.down);           // 666.7 — a 10 GB download
+scoreBottleneck(r, 'gaming');            // 'loadedLatencyIncrease'
+compareToUsual(lastRuns, r);             // { runs: 4, down: 20, up: 0, latency: -5 }
+```
+
+- **Uses** are rules of thumb the streaming and conferencing services
+  publish (`USE_RULES`): ~25 Mbps a 4K stream, ~5 an HD one; an HD call
+  wants 3 Mbps each way, latency under load below 150 ms, jitter below 30,
+  loss below 1%; 1080p cloud gaming 25 Mbps down, 40 ms idle, 10 ms jitter,
+  0.5% loss. A use whose essential readings were not measured (a profile
+  without upload) comes back `{ key: 'na' }` — not judged, never a pass.
+- **The bottleneck** is AIM's own scoring, the one the engine grades with:
+  the reading that lost the most of its best points, if it lost at least
+  10 of them (one step short of the best is not "holding it back").
+- **The usual** is the median of up to ten earlier clean runs; the tab
+  keeps that log on the device only and never sends it anywhere.
