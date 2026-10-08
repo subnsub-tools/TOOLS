@@ -33,6 +33,20 @@ injects an XHR transport for its upload endpoint; see the README.)</p>
 <p id="batchnote" class="muted"></p>
 <div id="rows"></div>
 
+<h2>Text document routing (pure, nothing uploaded)</h2>
+<p class="muted">On the site a single dropped <code>.md</code>/<code>.txt</code>
+opens in the editor instead of uploading; this reports what
+<code>textDropRoute()</code> would decide for the chosen files and whether
+the bytes decode as round-trip-safe text. The 1&nbsp;MiB editor cap applies.</p>
+<label>Files <input type="file" id="tfiles" multiple></label>
+<p id="tout" class="muted"></p>
+
+<h2>History pruning (pure)</h2>
+<p class="muted">Same rule as the site's reload path: expired entries are
+pruned, storage is rewritten only when something was pruned, and an emptied
+history <em>removes</em> the key instead of writing <code>'[]'</code>.</p>
+<p id="hout" class="muted"></p>
+
 <h2>Video → keyframes ZIP (fully local)</h2>
 <p class="muted">Analyzes the clip, extracts the most-changed keyframes,
 builds a contact sheet and packs a store-only ZIP — entirely in this page;
@@ -46,6 +60,7 @@ the video is never sent anywhere. Cap set to 15&nbsp;MB here.</p>
   import {
     uploadBatch, sanitizeExpiryMinutes, extendChoices,
     formatBytes, formatDuration, videoToFramesZip,
+    textDropRoute, isTextEditableFile, decodeTextBytes, pruneHistory,
     CONCURRENCY, EXPIRY_PRESETS, PASTE_ONLY_PRESETS,
   } from './relay-upload.js';
 
@@ -136,7 +151,10 @@ the video is never sent anywhere. Cap set to 15&nbsp;MB here.</p>
       },
       onError(item, err){
         const r = rowFor(item);
-        r.status.textContent = 'failed: ' + ((err && err.code) || (err && err.message) || err);
+        r.status.textContent = 'failed: ' + ((err && err.code) || (err && err.message) || err) +
+          /* over the cap: the probe still ran, so the page knows whether a
+             Download offer could deliver (a dropped folder could not) */
+          (err && err.code === 'too_large' ? (err.readable ? ' — bytes readable, could be offered back' : ' — unreadable (folder/.app), nothing to offer back') : '');
         r.status.className = 'status err';
       },
       onHash(item, md5){ rowFor(item).hash.textContent = 'MD5 ' + md5; },
@@ -144,6 +162,38 @@ the video is never sent anywhere. Cap set to 15&nbsp;MB here.</p>
     if(ignored) $('batchnote').textContent += ' — ' + ignored + ' file(s) over the batch cap were ignored';
     $('batchnote').textContent += ' — done: ' + items.filter(x => x.ok).length + '/' + items.length;
   };
+
+  $('tfiles').onchange = async () => {
+    const files = Array.from($('tfiles').files || []);
+    if(!files.length){ $('tout').textContent = ''; return; }
+    const route = textDropRoute(files);
+    let line = files.length + ' file(s) → ' + route;
+    if(files.length === 1){
+      const f = files[0];
+      line += ' (type "' + (f.type || '') + '", editor rule ' + (isTextEditableFile(f) ? 'accepts' : 'rejects') + ' the name/type)';
+      if(route === 'edit'){
+        const text = decodeTextBytes(await f.arrayBuffer());
+        line += text == null ? ' — but the bytes are not round-trip-safe UTF-8 text' : ' — ' + text.length + ' chars decoded';
+      }
+    }
+    $('tout').textContent = line;
+    $('tfiles').value = '';
+  };
+
+  /* pruneHistory on a made-up stored list: one live, one expired, one
+     malformed; then the all-expired case that must REMOVE the key */
+  {
+    const now = Date.now();
+    const mixed = JSON.stringify([
+      { id: 'a', expiresAt: now + 60000 }, { id: 'b', expiresAt: now - 1 }, { id: 'c' },
+    ]);
+    const p1 = pruneHistory(mixed, now);
+    const p2 = pruneHistory(JSON.stringify([{ id: 'b', expiresAt: now - 1 }]), now);
+    const p3 = pruneHistory(JSON.stringify([{ id: 'a', expiresAt: now + 60000 }]), now);
+    const say = (p) => p.write === undefined ? 'leave key' : (p.write === null ? 'REMOVE key' : 'rewrite ' + p.write);
+    $('hout').textContent = 'mixed → ' + p1.live.length + ' live, ' + say(p1) +
+      ' | all expired → ' + say(p2) + ' | nothing pruned → ' + say(p3);
+  }
 
   $('vfile').onchange = async () => {
     const f = ($('vfile').files || [])[0];

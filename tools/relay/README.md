@@ -18,7 +18,10 @@ leaves the device, only the packed ZIP of frames is uploaded.
   `PASTE_EXPIRY_PRESETS`, `FILE_MAX_MINUTES`, `expiryPresets()`,
   `sanitizeExpiryMinutes()`, `extendChoices()`), the text-paste lane
   (`pasteBytesOf()`, `pasteDisplayName()`, `pastePreflight()`,
-  `canDeletePaste()`), `md5Hex()`/`md5OfBlob()`, and the video half
+  `canDeletePaste()`), the text-document rules (`isTextDrag()`,
+  `isTextEditableFile()`, `textDropRoute()`, `isTextDocument()`,
+  `decodeTextBytes()`), history pruning (`pruneHistory()`),
+  `md5Hex()`/`md5OfBlob()`, and the video half
   (`videoToFramesZip()`, `extractKeyframeTimes()`, `captureVideoFrame()`,
   `drawChangeBoxes()`, `buildContactSheet()`, `buildZip()`)
 - [`demo.html`](demo.html) — minimal standalone page. **Its uploader is an
@@ -53,9 +56,18 @@ Per file, `uploadBatch` runs the courtesy preflight first: the byte cap,
 then a 1-byte read probe — a dropped folder or macOS `.app` bundle arrives
 as a `File` with a plausible size but unreadable bytes, and without the
 probe the failed read would surface much later as a misleading network
-error (`err.code` is `'too_large'` / `'unreadable'`). Failures stay
-per-file — one bad file never aborts the batch — and nothing is retried
-automatically.
+error (`err.code` is `'too_large'` / `'unreadable'`). The probe also runs
+on the over-cap branch: a `'too_large'` result carries `readable`
+(`preflight()` → `{ ok: false, error: 'too_large', readable }`, and the
+`uploadBatch` error object gets `err.readable`), because the page hands
+oversize bytes back to the user as an in-row Download — and a dropped
+folder is over most caps *and* undeliverable, so it must not be offered
+one. Failures stay per-file — one bad file never aborts the batch — and
+nothing is retried automatically; every failed item still holds its
+`file`, which is why the page can offer the bytes back after *any*
+failure (a dropped connection, a ban, a tripped quota, a 500), not just a
+size reject: for a pasted screenshot or a document typed into the editor,
+that row is the only place the bytes exist.
 
 The transport the site itself injects, shown here as the reference for the
 contract (not part of the module):
@@ -83,6 +95,50 @@ function siteTransport(file, { expiresInMinutes, onProgress }) {
   });
 }
 ```
+
+Text documents — open, don't upload. A single dropped `.md` / `.txt` is
+the one payload whose resting action on the site is not the upload: a
+bare drop opens it in the in-page text editor, and "send it as-is" is the
+alternative the user picks by releasing on the other half of the drop
+target. The module holds the classification; the page holds the state
+(is an editor present, is one already open with a document in it, is this
+a device-send drag, which zone was the pointer released on):
+
+```js
+import { isTextDrag, textDropRoute, isTextDocument, decodeTextBytes } from './relay-upload.js';
+
+// mid-drag only MIME is readable, so the bar is high: EVERY file item must
+// carry text/plain or text/markdown (an empty type is what a .zip or .dmg
+// can look like mid-drag on some platforms)
+isTextDrag(dataTransfer.items)            // → true / false
+
+// on release, the real File (name included) is re-checked with the
+// editor's own rule (isTextEditableFile: .md/.txt-family names, or a
+// text/* type that is not text/html / text/xml) and the 1 MiB cap
+textDropRoute(dataTransfer.files)         // → 'edit' | 'too_large' | 'upload'
+// 'too_large' is an error to show, not a silent upload: the drop target
+// promised an editor, and the send-as-is zone is still there for the file
+
+// an existing share can be reopened as text and re-shared as a NEW link
+// (uploads are immutable; nothing rewrites one): broader rule, 2 MiB cap
+isTextDocument(name, type, size)          // images never; known non-text
+                                          // types never; a generic/absent
+                                          // type defers to the filename
+decodeTextBytes(arrayBuffer)              // → string, or null when a NUL
+                                          // byte / invalid UTF-8 means the
+                                          // bytes would not survive a
+                                          // textarea round trip
+```
+
+History. The site keeps the last `HISTORY_MAX` (50) shares in
+`localStorage` so rows come back after a reload; reading it prunes expired
+entries. `pruneHistory(storedStringOrArray, now)` returns `{ live, write }`
+where `write` is `undefined` (leave the key alone), a JSON string (rewrite
+it) or `null` (**remove** the key). An emptied history is never written
+back as `'[]'`: the settings-sync contract is *empty collection = key
+absent*, and a lingering `'[]'` reads to the sync engine as a disk change —
+one spurious full reload per visit for a signed-in account with nothing in
+its history.
 
 Video → keyframes ZIP (browser only — it is `<video>` + `<canvas>` work):
 
@@ -143,6 +199,22 @@ Failure JSON: `{ error }` — a deployment-defined code (`too_large`,
 `bad_expiry`, `bad_request`, …). The module surfaces the code verbatim
 through `onError` and attaches no meaning to it; which codes exist and
 what limits trigger them are server policy, not module contract.
+
+Reading a share back (`GET /f/<id>`, `/i/<id>`, `/p/<id>.txt`): an
+expired id answers `410`, an id that is unknown, deleted or taken down
+answers `404` — a client must not report a `404` as "expired", since the
+row's own countdown would contradict it. Both are counted per IP toward
+the anti-enumeration ledger (ten misses in a rolling window ban the IP
+from the serving routes and `/api/upload`), which is why the page checks
+its own `expiresAt` before spending a request on a link it already knows
+is dead, and fetches same-origin by pathname (a history entry synced from
+another device may store the other serving host's absolute URL, and the
+serving routes carry no CORS headers).
+
+There is no replace or rewrite endpoint. An upload is an immutable object
+with its own expiry; editing a shared text document or paste re-shares
+the edited copy as a **new** link through the same `POST /api/upload`,
+and the original link is not touched.
 
 `POST /api/extend` — JSON `{ id, expiresInMinutes }` →
 `{ ok: true, expiresAt }` or `{ error }`. Any share — file or paste — can

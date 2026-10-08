@@ -55,6 +55,26 @@
      not for a short-lived file. See the README for the wire shape and how
      the /p/<id> viewer + /p/<id>.txt raw twin serve the result.
 
+   Text documents — open, don't upload:
+     A single dropped Markdown or plain-text file is not a transfer: on the
+     site its resting action is the in-page text editor, and uploading it
+     as-is is the alternative the user has to pick. textDropRoute() is that
+     decision; isTextDrag() is the drag-time half (judged on MIME alone,
+     because a filename is unreadable mid-drag) and isTextEditableFile()
+     the drop-time half (the editor's own rule, filename included).
+     isTextDocument() / decodeTextBytes() are the matching rules for a
+     share that already exists: which uploaded rows can be reopened as
+     text, and which bytes survive a textarea round trip. Saving an edit
+     never rewrites a share — uploads are immutable objects — it re-shares
+     the edited copy as a NEW link through the same pipeline.
+
+   History persistence (localStorage, best-effort on the site):
+     pruneHistory() drops expired entries from a stored list and says
+     whether the storage key must be rewritten — or REMOVED: an empty
+     history is never written as '[]', because the settings-sync contract
+     is empty collection = key absent, and a lingering '[]' reads as a disk
+     change that costs one spurious reload.
+
    Video half (browser-only — <video> and <canvas> are the whole point):
      videoToFramesZip() turns a video file into a store-only ZIP of
      keyframes plus a contact sheet, entirely client-side: the source video
@@ -214,19 +234,182 @@ export function canDeletePaste(record, opts){
   return r.expiresAt == null || r.expiresAt > now;
 }
 
+/* ── text documents: open, don't upload ──────────────────────────────
+   A single dropped .md / .txt is the ONE payload whose resting action is
+   not the upload: on the site a bare drop opens it in the in-page text
+   editor, and "send it as-is" is the alternative the user has to pick
+   (pause, release on the other half of the drop target). Everything in
+   this section is pure classification; the page conditions that sit
+   above it — an editor present on the page, no editor already open with
+   a document in it, the drag not being a device-send or clipboard drag,
+   which zone the pointer was released on — are the caller's to apply.
+
+   The rule is judged twice, with different evidence each time:
+     drag time   only the MIME type is readable mid-drag, so the bar is
+                 set high: EVERY file item must carry an explicitly texty
+                 type (isTextDrag). An empty type is not enough — mid-drag
+                 that is also what a .dmg or a .zip looks like on some
+                 platforms, and defaulting those into a text editor would
+                 be far worse than the extra pause it costs a .md whose
+                 type the OS withheld.
+     drop time   the real File (name included) is re-checked with the
+                 editor's own rule (isTextEditableFile) before the editor
+                 is handed anything, so a payload it would refuse falls
+                 back to the upload lane instead of opening an empty modal.
+   textDropRoute() is both halves on the dropped files. */
+export const TEXT_DRAG_MIME_RE = /^text\/(plain|markdown|x-markdown|x-web-markdown)\b/i;
+
+/* Drag-time verdict over the drag's items (an array, or anything
+   array-like with { kind, type } entries — DataTransferItemList shape).
+   Non-file items (strings) are ignored; one file item without a texty
+   MIME type sinks the whole drag; no file items at all is not a text
+   drag. A multi-file text drag still passes here: the page keeps the
+   single-file requirement separately, because a multi-file drag has its
+   own (upload-only) meaning. */
+export function isTextDrag(items){
+  if(!items || typeof items.length !== 'number') return false;
+  let found = false;
+  for(let i = 0; i < items.length; i++){
+    const item = items[i];
+    if(!item || item.kind !== 'file') continue;
+    if(!TEXT_DRAG_MIME_RE.test(item.type || '')) return false;
+    found = true;
+  }
+  return found;
+}
+
+/* Longest file the editor opens from a drop — 1 MiB, the same ceiling a
+   paste has (PASTE_MAX_BYTES): a document that fits the editor is
+   snippet-sized by definition; bigger text is a transfer. */
+export const TEXT_EDIT_MAX_BYTES = 1024 * 1024;
+const TEXT_EDIT_MD_EXT = /\.(md|markdown|mdown|mkd|mkdn|mdx|rmd|qmd)$/i;
+const TEXT_EDIT_TXT_EXT = /\.(txt|text|log|nfo|me|readme|asc)$/i;
+
+/* The editor's own "can I open this" rule, mirrored here so a drop can be
+   routed BEFORE any bytes are read: a Markdown or plain-text filename, or
+   a text/* type that is not markup (text/html and text/xml belong to the
+   upload lane — rendering them is not editing them). Size is not this
+   rule's business; textDropRoute() applies the cap after it. */
+export function isTextEditableFile(file){
+  if(!file) return false;
+  const name = String(file.name || '');
+  if(TEXT_EDIT_MD_EXT.test(name) || TEXT_EDIT_TXT_EXT.test(name)) return true;
+  const type = String(file.type || '');
+  return /^text\//i.test(type) && !/^text\/(html|xml)/i.test(type);
+}
+
+/* What a bare drop of `files` should do, with no page state involved:
+     'edit'      — exactly one file, texty MIME AND editor-editable by
+                   name/type, within TEXT_EDIT_MAX_BYTES → open it
+     'too_large' — it IS a text document, but too big for the editor.
+                   This is an error to show, not a silent upload: the
+                   drop target promised an editor, and the user can still
+                   choose the send-as-is zone for the file lane
+     'upload'    — anything else (several files, a non-text type, an
+                   absent type) takes the file lane as before
+   The page runs isTextDrag() on the dataTransfer items to word the drop
+   target while the drag is in flight, and this on the release. A drop
+   that was never announced (no dragenter reached the page) is judged
+   here as well rather than defaulted into the upload lane. */
+export function textDropRoute(files, maxBytes = TEXT_EDIT_MAX_BYTES){
+  const list = Array.from(files || []);
+  if(list.length !== 1) return 'upload';
+  const f = list[0];
+  if(!f || !TEXT_DRAG_MIME_RE.test(f.type || '') || !isTextEditableFile(f)) return 'upload';
+  if(f.size > maxBytes) return 'too_large';
+  return 'edit';
+}
+
+/* ── reopening a share as text ──
+   A share that already exists can be reopened in the editor and re-shared
+   as a NEW link (an upload is an immutable object; nothing rewrites it).
+   Which rows qualify is a broader rule than the drop one above — the
+   bytes are known to be a file the user chose to share, so source code,
+   config and data formats count too — under a 2 MiB comfort ceiling for
+   the textarea — smaller than any file the upload lane takes. */
+export const TEXT_DOC_MAX_BYTES = 2 * 1024 * 1024;
+export const TEXT_DOC_TYPE_RE = /^(?:text\/|application\/(?:json|ld\+json|manifest\+json|xml|xhtml\+xml|javascript|x-javascript|ecmascript|x-yaml|yaml|toml|sql|x-sql|x-sh|x-python|graphql|x-ndjson|csv)\s*(?:;|$))/i;
+export const TEXT_DOC_EXT_RE = /\.(?:md|markdown|txt|text|log|json|jsonl|ndjson|csv|tsv|xml|svg|yml|yaml|toml|ini|cfg|conf|env|js|mjs|cjs|ts|tsx|jsx|css|scss|less|html?|xhtml|sh|bash|zsh|bat|ps1|py|rb|go|rs|java|kt|kts|c|h|cpp|hpp|cc|cs|php|sql|swift|lua|pl|r|srt|vtt|sub|diff|patch|gitignore|gitattributes|editorconfig|properties|gradle|tf|proto|lock)$/i;
+
+/* Is this (name, type, size) a document the editor may reopen as text?
+   Images never are — the image lane owns those. A declared text-ish type
+   decides on its own; a generic or absent type (application/octet-stream,
+   '') defers to the filename; a KNOWN non-text type (video, zip, pdf, …)
+   stays out even with a texty name. */
+export function isTextDocument(name, type, size){
+  if(typeof size === 'number' && size > TEXT_DOC_MAX_BYTES) return false;
+  const t = String(type || '');
+  if(/^image\//i.test(t)) return false;
+  if(t && TEXT_DOC_TYPE_RE.test(t)) return true;
+  if(t && !/^application\/octet-stream$/i.test(t)) return false;
+  return TEXT_DOC_EXT_RE.test(String(name || ''));
+}
+
+/* Bytes → string, refusing anything that would corrupt on a round trip:
+   a NUL byte or invalid UTF-8 means this is not text that can be faithfully
+   re-encoded from a textarea, so the editor must not open at all. Returns
+   null in that case (an empty document decodes to '', which is distinct).
+   Takes an ArrayBuffer or a Uint8Array. */
+export function decodeTextBytes(buf){
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  if(bytes.includes(0)) return null;
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+  catch (_){ return null; }
+}
+
+/* ── history persistence ──
+   The site keeps the last HISTORY_MAX shares in localStorage so rows come
+   back after a reload. Reading it prunes expired entries — and rewrites
+   storage when it does, so expired rows (and their per-entry thumbs) do
+   not sit there forever only to be hidden from the UI. Pruned to NOTHING,
+   the key is REMOVED rather than written as '[]': the settings-sync
+   contract is empty collection = key absent, and a lingering '[]' reads
+   as a disk change to the sync engine — one spurious full reload per
+   visit for a signed-in account with an empty history. */
+export const HISTORY_MAX = 50;
+
+/* Prune a stored history. `stored` is the raw localStorage string (or an
+   already-parsed array). Returns { live, write }:
+     live   the entries still alive at `now` — malformed storage yields []
+     write  what to do with the storage key: undefined = leave it alone
+            (nothing was pruned, or there was nothing to read), a string
+            = rewrite it with that JSON, null = remove the key (everything
+            expired). An entry is alive when its `expiresAt` is a number
+            still in the future; anything else is dropped. */
+export function pruneHistory(stored, now = Date.now()){
+  let arr;
+  if(stored == null || stored === '') return { live: [], write: undefined };
+  if(Array.isArray(stored)) arr = stored;
+  else {
+    try { arr = JSON.parse(String(stored)); }
+    catch (_){ return { live: [], write: undefined }; }
+  }
+  if(!Array.isArray(arr)) return { live: [], write: undefined };
+  const live = arr.filter(x => x && typeof x.expiresAt === 'number' && x.expiresAt > now);
+  if(live.length === arr.length) return { live, write: undefined };
+  return { live, write: live.length ? JSON.stringify(live) : null };
+}
+
 /* ── courtesy preflight — the checks the page runs before spending an
    upload. Resolves { ok: true } or { ok: false, error }:
      'too_large'  — over the caller's byte cap. The server re-checks with
                     the account's real cap; this only skips pointless work.
+                    Carries `readable` as well: the probe below still runs
+                    on this branch, because a caller that hands oversize
+                    bytes back to the user (the site's in-row Download
+                    offer) must not offer a download that cannot deliver —
+                    a dropped folder is over most caps AND unreadable.
      'unreadable' — the 1-byte probe failed. A dropped folder or macOS
                     .app bundle arrives as a File with a plausible-looking
                     size but unreadable bytes; the failed read would
                     otherwise surface much later as a misleading
                     "network error". */
 export async function preflight(file, maxBytes = DEFAULT_MAX_BYTES){
-  if(file.size > maxBytes) return { ok: false, error: 'too_large' };
+  let readable = true;
   try { await file.slice(0, 1).arrayBuffer(); }
-  catch (_){ return { ok: false, error: 'unreadable' }; }
+  catch (_){ readable = false; }
+  if(file.size > maxBytes) return { ok: false, error: 'too_large', readable };
+  if(!readable) return { ok: false, error: 'unreadable' };
   return { ok: true };
 }
 
@@ -321,6 +504,10 @@ export async function uploadBatch(files, options){
         ? 'File too large'
         : "Can't upload a folder or .app bundle — compress it to a .zip first");
       e.code = pre.error;
+      /* too_large keeps the probe's verdict: the bytes are still in
+         item.file, and `readable` says whether offering them back (a
+         Download control) can actually deliver anything. */
+      if(pre.error === 'too_large') e.readable = pre.readable;
       item.error = e;
       if(onError) onError(item, e);
       return;
