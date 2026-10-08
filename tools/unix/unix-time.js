@@ -159,3 +159,94 @@ export function unixParse(value,zone){
   return unixDateFromParts([w.getUTCFullYear(),w.getUTCMonth()+1,w.getUTCDate(),
     w.getUTCHours(),w.getUTCMinutes(),w.getUTCSeconds(),w.getUTCMilliseconds()],zone);
 }
+
+/* ── One instant, every other way (2026-10-09) ──
+   Under the conversion: the same instant in the zones the reader keeps (UTC,
+   this device, the World Clock's cities), in the formats other systems store
+   time in, where it sits in its calendar, and the round numbers the epoch
+   counter is heading for. Lockstep with the tab (index.html / unix.html). */
+export function unixOffsetMin(ms,zone){ return Math.round((unixZoneShift(ms,zone)-ms)/60000); }
+export function unixOffsetStr(min){ const a=Math.abs(min); return 'UTC'+(min<0?'−':'+')+unixPad(Math.floor(a/60))+':'+unixPad(a%60); }
+/* GPS time ignores the leap seconds UTC has inserted since 1980-01-06:
+   the count at each insertion, newest first */
+const UNIX_LEAPS=[[Date.UTC(2017,0,1),18],[Date.UTC(2015,6,1),17],[Date.UTC(2012,6,1),16],[Date.UTC(2009,0,1),15],[Date.UTC(2006,0,1),14],
+  [Date.UTC(1999,0,1),13],[Date.UTC(1997,6,1),12],[Date.UTC(1996,0,1),11],[Date.UTC(1994,6,1),10],[Date.UTC(1993,6,1),9],[Date.UTC(1992,6,1),8],
+  [Date.UTC(1991,0,1),7],[Date.UTC(1990,0,1),6],[Date.UTC(1988,0,1),5],[Date.UTC(1985,6,1),4],[Date.UTC(1983,6,1),3],[Date.UTC(1982,6,1),2],[Date.UTC(1981,6,1),1]];
+const UNIX_RFC_DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], UNIX_RFC_MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+/* [key, English label, value or null] — null when the format cannot hold
+   the instant (FILETIME before 1601, Excel before 1900, GPS before 1980…) */
+export function unixFormats(ms,zone){
+  const off=unixOffsetMin(ms,zone), w=new Date(unixZoneShift(ms,zone)), y=w.getUTCFullYear();
+  const isoOff=off?(off<0?'-':'+')+unixPad(Math.floor(Math.abs(off)/60))+':'+unixPad(Math.abs(off)%60):'Z';
+  const yy=y<0||y>9999?(y<0?'-':'+')+unixPad(Math.abs(y),6):unixPad(y,4);
+  const wall=yy+'-'+unixPad(w.getUTCMonth()+1)+'-'+unixPad(w.getUTCDate())+'T'+unixPad(w.getUTCHours())+':'+unixPad(w.getUTCMinutes())+':'+unixPad(w.getUTCSeconds());
+  const frac=(((ms%1000)+1000)%1000), B=BigInt(ms), sec=Math.floor(ms/1000);
+  let gps=null;
+  if(ms>=315964800000){ const lp=UNIX_LEAPS.find(l=>ms>=l[0]); gps=String(Math.floor((ms-315964800000)/1000)+(lp?lp[1]:0)); }
+  /* Excel's 1900 system counts a 29 February 1900 that never was: from
+     1 March 1900 its serials run one ahead of the days elapsed, before it
+     they do not (1 January 1900 is 1, and there is no day 0) */
+  const xl=unixZoneShift(ms,zone), excel=(xl-Date.UTC(1899,11,30))/86400000-(xl<Date.UTC(1900,2,1)?1:0);
+  return [
+    ['iso','ISO 8601',wall+(frac?'.'+unixPad(frac,3):'')+isoOff],
+    ['rfc2822','RFC 2822',y>=0&&y<=9999?UNIX_RFC_DAYS[w.getUTCDay()]+', '+unixPad(w.getUTCDate())+' '+UNIX_RFC_MONTHS[w.getUTCMonth()]+' '+unixPad(y,4)+' '+unixPad(w.getUTCHours())+':'+unixPad(w.getUTCMinutes())+':'+unixPad(w.getUTCSeconds())+' '+(off<0?'-':'+')+unixPad(Math.floor(Math.abs(off)/60))+unixPad(Math.abs(off)%60):null],
+    ['utc','RFC 3339, UTC',(()=>{ try{ return new Date(ms).toISOString(); }catch(_){ return null; } })()],
+    ['us','Unix microseconds',(B*1000n).toString()],
+    ['ns','Unix nanoseconds',(B*1000000n).toString()],
+    ['filetime','Windows FILETIME',ms>=-11644473600000?((B+11644473600000n)*10000n).toString():null],
+    ['ticks','.NET ticks',ms>=-62135596800000?((B+62135596800000n)*10000n).toString():null],
+    ['excel','Excel serial date',excel>=1?String(Math.round(excel*1e6)/1e6):null],
+    ['ntp','NTP seconds',ms>=-2208988800000?String(sec+2208988800):null],
+    ['gps','GPS seconds',gps],
+    ['jd','Julian Day',String(Math.round((ms/86400000+2440587.5)*1e6)/1e6)],
+    ['cocoa','Apple Cocoa',String((ms-978307200000)/1000)],
+    ['webkit','WebKit / Chrome',ms>=-11644473600000?((B+11644473600000n)*1000n).toString():null],
+    ['hex','Hex seconds',(sec<0?'-0x':'0x')+Math.abs(sec).toString(16)]
+  ];
+}
+/* where the instant sits in the zone's calendar, and the zone's clock */
+export function unixIsoWeek(y,m,d){
+  const t=new Date(0); t.setUTCFullYear(y,m,d);
+  const th=t.getTime()+(3-(t.getUTCDay()+6)%7)*86400000, ty=new Date(th).getUTCFullYear(), j=new Date(0);
+  j.setUTCFullYear(ty,0,1);
+  return { year:ty, week:1+Math.floor((th-j.getTime())/(7*86400000)) };
+}
+export function unixDateInfo(ms,zone){
+  const w=new Date(unixZoneShift(ms,zone)), y=w.getUTCFullYear(), m=w.getUTCMonth(), d=w.getUTCDate();
+  const j=new Date(0); j.setUTCFullYear(y,0,1);
+  const t0=new Date(0); t0.setUTCFullYear(y,m,d);
+  const doy=Math.round((t0.getTime()-j.getTime())/86400000)+1;
+  const days=(y%4===0&&y%100!==0)||y%400===0?366:365;
+  /* Clock changes, read off the offset every two days from half a year
+     back to a year ahead — no January/July shortcut: Morocco changes around
+     Ramadan with the same offset at both. Daylight saving is in effect when
+     the offset stands above the lowest within half a year either side; the
+     next switch is bisected on whole minutes, where switches fall. */
+  const DAY=86400000, cur=unixOffsetMin(ms,zone);
+  let low=cur, varies=false, next=null, a=ms, prev=cur;
+  for(let k=-91;k<=183;k++){
+    const t=ms+k*2*DAY;
+    if(Math.abs(t)>8.64e15) continue;
+    const o=unixOffsetMin(t,zone);
+    if(o!==cur) varies=true;
+    if(k<=91&&o<low) low=o;
+    if(k>0&&!next){
+      if(o!==prev){
+        let lo=Math.floor(a/60000), hi=Math.ceil(t/60000);
+        while(hi-lo>1){ const mid=Math.floor((lo+hi)/2); if(unixOffsetMin(mid*60000,zone)===prev) lo=mid; else hi=mid; }
+        next={ ms:hi*60000, delta:unixOffsetMin(hi*60000,zone)-prev };
+      }
+      a=t; prev=o;
+    }
+  }
+  const dst=varies?cur>low:null;
+  return { weekday:w.getUTCDay(), iso:unixIsoWeek(y,m,d), doy, days, quarter:Math.floor(m/3)+1, dst, next };
+}
+/* the next three hundred-million marks after `nowMs`, then the 32-bit limits */
+export function unixMilestones(nowMs){
+  const s=Math.floor(nowMs/1000), out=[], step=100000000;
+  for(let v=(Math.floor(s/step)+1)*step;out.length<3;v+=step) out.push({ sec:v, kind:'round' });
+  if(2147483647>s) out.push({ sec:2147483647, kind:'i32' });
+  if(4294967295>s) out.push({ sec:4294967295, kind:'u32' });
+  return out.sort((x,y)=>x.sec-y.sec);
+}
