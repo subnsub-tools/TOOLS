@@ -28,6 +28,18 @@ subnsub.com the page feeds it the same document from the same-origin
 <p id="rate">—</p>
 <p id="date"></p>
 
+<h2>History (sample, 1M)</h2>
+<p id="move">—</p>
+<svg id="plot" viewBox="0 0 600 150" preserveAspectRatio="none" style="width:100%;height:120px;display:block"></svg>
+<p id="stats">—</p>
+<p id="hover" style="color:#666">—</p>
+
+<h2>Majors against FROM</h2>
+<ul id="majors"></ul>
+
+<h2>Ladders</h2>
+<pre id="ladders" style="background:rgba(127,127,127,.12);padding:.5rem;white-space:pre"></pre>
+
 <h2>Quick conversions</h2>
 <ul id="grid"></ul>
 
@@ -41,6 +53,9 @@ subnsub.com the page feeds it the same document from the same-origin
     readRatesPayload, mergeNames, nameOf, parseAmount, crossRate, convert,
     fmtMoney, fmtRate, rawString, fmtDate, quickTargets,
     sanitizeFavs, serializeFavs, upsertFav, FAV_MAX,
+    historyRequest, readHistoryPayload, pairPoints, dayPair, pctChange,
+    rangeStats, moveOf, fmtPct, fmtDelta, sparkPath, nearestIndex,
+    majorRows, ladderRows,
   } from './fx-convert.js';
 
   /* Hand-written stand-in for the /api/rates document — a handful of round
@@ -59,6 +74,23 @@ subnsub.com the page feeds it the same document from the same-origin
   };
 
   const doc = readRatesPayload(SAMPLE_RATES_PAYLOAD);
+
+  /* Hand-written stand-in for /api/rates-history?range=1m: 30 daily tables
+     ending the day before the rate set, each code drifting a little around
+     its live value. Shapes real, numbers made up. */
+  const SAMPLE_HISTORY_PAYLOAD = (() => {
+    const ask = historyRequest('1m', 'usd', 'eur');
+    const dates = [], series = {};
+    for (let i = 30; i >= 1; i--) dates.push(new Date(Date.UTC(2026, 0, 1) - i * 86400000).toISOString().slice(0, 10));
+    ask.codes.forEach(c => {
+      const base = c === 'usd' ? null : doc.rates[c];
+      if (base == null) return;                                   // a code the tables lack is left out
+      series[c] = dates.map((_, i) => Math.round(base * (1 + 0.03 * Math.sin(i / 4 + base)) * 1e8) / 1e8);
+    });
+    series.gbp[dates.length - 2] = null;                          // one day's table missing a code
+    return { ok: true, range: '1m', dates, series };
+  })();
+  const hist = readHistoryPayload(SAMPLE_HISTORY_PAYLOAD);
   const names = mergeNames(doc.names);
   let favs = sanitizeFavs([]);   // session-only list; the site persists/syncs this
 
@@ -96,6 +128,53 @@ subnsub.com the page feeds it the same document from the same-origin
       : '—';
     $('result').className = isFinite(out) ? '' : 'err';
     $('date').textContent = 'Rates as of ' + fmtDate(doc.date) + ' (sample data)';
+
+    /* history: the day's move, the month's line and figures */
+    const pts = pairPoints(hist, from, to, doc.rates, doc.date);
+    const day = dayPair(pts);
+    $('move').textContent = day
+      ? '1D: ' + fmtDelta(day[1] - day[0]) + ' (' + fmtPct(pctChange(day[0], day[1])) + ') · ' + moveOf(pctChange(day[0], day[1]))
+      : '1D: — (no point dated exactly one day before the last)';
+    const svg = $('plot'); svg.textContent = '';
+    const st = rangeStats(pts);
+    if (st){
+      const { d, xs } = sparkPath(pts, 600, 150);
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', d); path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', moveOf(st.pct) === 'down' ? '#b00020' : '#1a7f37'); path.setAttribute('stroke-width', '2');
+      path.setAttribute('vector-effect', 'non-scaling-stroke');
+      svg.appendChild(path);
+      svg.onmousemove = e => {
+        const r = svg.getBoundingClientRect();
+        const i = nearestIndex(xs, (e.clientX - r.left) / r.width * 600);
+        $('hover').textContent = fmtDate(pts[i][0]) + ': ' + fmtRate(pts[i][1]);
+      };
+      $('stats').textContent = 'high ' + fmtRate(st.high) + ' (' + fmtDate(st.highDate) + ') · low ' + fmtRate(st.low)
+        + ' (' + fmtDate(st.lowDate) + ') · avg ' + fmtRate(st.avg) + ' · 1M ' + fmtDelta(st.change) + ' (' + fmtPct(st.pct) + ')';
+    } else {
+      $('stats').textContent = 'No history for this pair in the sample.';
+    }
+
+    /* the majors against FROM: what the amount buys, the day's and month's move */
+    const mj = $('majors'); mj.textContent = '';
+    majorRows(from, to).forEach(code => {
+      const li = document.createElement('li');
+      const mp = pairPoints(hist, from, code, doc.rates, doc.date);
+      const dp = dayPair(mp), d1 = dp ? pctChange(dp[0], dp[1]) : NaN;
+      const m1 = mp.length >= 2 ? pctChange(mp[0][1], mp[mp.length - 1][1]) : NaN;
+      li.textContent = code.toUpperCase() + ' ' + nameOf(code, names) + ': ' + fmtMoney(convert(doc.rates, from, code, amt > 0 ? amt : 1))
+        + '   1D ' + fmtPct(d1) + '   1M ' + fmtPct(m1);
+      if (code === to) li.style.fontWeight = '600';
+      mj.appendChild(li);
+    });
+
+    /* ladders both ways */
+    const lad = (a, b) => {
+      const rows = ladderRows(doc.rates, a, b);
+      return a.toUpperCase() + ' → ' + b.toUpperCase() + '\n'
+        + (rows ? rows.map(([x, y]) => fmtMoney(x).padStart(12) + '  ' + fmtMoney(y)).join('\n') : '  —');
+    };
+    $('ladders').textContent = lad(from, to) + '\n\n' + lad(to, from);
 
     const ul = $('grid'); ul.textContent = '';
     quickTargets(doc.rates, from).forEach(code => {

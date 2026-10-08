@@ -17,8 +17,8 @@
 export const BASE = 'usd';
 
 /* Curated popular set (ISO 4217 + a few majors crypto), shown first in the
-   picker and used for the quick-conversion tiles. Lowercased to match the
-   API's key casing. */
+   picker. Lowercased to match the API's key casing. (The majors list the
+   page draws against FROM is the shorter MAJORS, below.) */
 export const POPULAR = ['usd','eur','gbp','jpy','cny','aud','cad','chf','hkd','sgd','inr','krw','nzd','sek','nok','mxn','brl','zar','rub','try','aed','sar','thb','twd','pln','dkk','idr','myr','php','czk','huf','ils','btc','eth'];
 
 /* Built-in English names so the picker reads well even before (or without)
@@ -98,8 +98,10 @@ export function allCodes(rates){
   return Array.from(set).sort();
 }
 
-/* Quick-conversion tile targets: the popular list minus the FROM side,
-   restricted to codes the table actually quotes, first 8. */
+/* Quick-conversion targets: the popular list minus the FROM side,
+   restricted to codes the table actually quotes, first 8. Kept for callers
+   that want a short tile grid; the site's tiles have given way to the
+   majors list (majorRows) with its day/month moves. */
 export function quickTargets(rates, from){
   return POPULAR.filter(c => c !== from && isFinite(rateOf(rates, c)) && rateOf(rates, c) > 0).slice(0, 8);
 }
@@ -245,4 +247,166 @@ export function upsertFav(favs, from, to, amount){
   else if (favs.length < FAV_MAX) favs.push(p);
   else return false;
   return true;
+}
+
+/* ── history: a pair over time ──
+   /api/rates-history (contract in README.md) samples the same open daily
+   tables /api/rates reads, as units per US dollar on each sampled day; a
+   pair's rate on a day is TO's units over FROM's, exactly as crossRate()
+   does it live. Everything below eats the decoded document as plain data:
+   the page fetches, caches and repaints; the module only computes. */
+
+/* Ranges the page offers, in display order; the sampling cadence behind
+   each is the server's business. */
+export const HISTORY_RANGES = ['1m', '3m', '1y'];
+
+/* The majors shown against FROM on the page, in display order. */
+export const MAJORS = ['usd','eur','jpy','gbp','cny','hkd','aud','cad','chf','sgd','krw','btc'];
+
+/* Validate a decoded /api/rates-history response. Returns { dates, series }
+   or null when the payload isn't usable — fewer than two dated points is no
+   history, and every date must be a bare YYYY-MM-DD. */
+export function readHistoryPayload(d){
+  const ok = d && d.ok && Array.isArray(d.dates) && d.dates.length >= 2 && d.series && typeof d.series === 'object'
+    && d.dates.every(x => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x));
+  return ok ? { dates: d.dates, series: d.series } : null;
+}
+
+/* The codes a history request may name: only a code's shape is ever put in
+   a request (the pair comes from saved prefs as well as the pickers), each
+   once, sorted so equal sets build equal cache keys. */
+export function historyCodes(codes){
+  return Array.from(new Set((codes || []).filter(c => typeof c === 'string' && /^[a-z0-9]{2,12}$/.test(c)))).sort();
+}
+
+/* What the page asks for: the month's table carries the majors and the pair
+   in one request (it feeds the overview, the majors list and the 1M chart);
+   a quarter or a year is asked for the pair alone. → { range, codes } */
+export function historyRequest(range, from, to){
+  return range === '1m'
+    ? { range: '1m', codes: historyCodes(MAJORS.concat([from, to])) }
+    : { range, codes: historyCodes([from, to]) };
+}
+
+/* [[iso, rate], …] for FROM → TO over a history, ascending by date. Days
+   where either side is missing or non-positive are skipped, and the base
+   itself is 1 on every day (the tables never carry a usd row).
+   With a live table and its date, the live rate is laid over the newest
+   point (or appended after it when the table is newer), so a chart always
+   ends on the number the converter shows. */
+export function pairPoints(hist, from, to, rates, date){
+  const pts = [];
+  if (hist){
+    const fs = hist.series[from], ts = hist.series[to];
+    hist.dates.forEach((d, i) => {
+      const f = from === BASE ? 1 : (Array.isArray(fs) ? fs[i] : null);
+      const t = to === BASE ? 1 : (Array.isArray(ts) ? ts[i] : null);
+      if (typeof f === 'number' && typeof t === 'number' && f > 0 && t > 0) pts.push([d, t / f]);
+    });
+  }
+  const live = crossRate(rates, from, to);
+  if (pts.length && typeof date === 'string' && isFinite(live)){
+    const last = pts[pts.length - 1];
+    if (date === last[0]) last[1] = live;
+    else if (date > last[0]) pts.push([date, live]);
+  }
+  return pts;
+}
+
+/* Relative change from a to b; NaN unless a is a positive rate. */
+export function pctChange(a, b){ return a > 0 && isFinite(b) ? (b - a) / a : NaN; }
+
+/* [before, last] for the day's move: the point dated exactly one day before
+   the last, or null — over a day the tables are missing, a two-day move is
+   not a 1D. */
+export function dayPair(pts){
+  const n = pts.length;
+  if (n < 2) return null;
+  const want = new Date(Date.parse(pts[n - 1][0]) - 86400000).toISOString().slice(0, 10);
+  for (let i = n - 2; i >= 0 && pts[i][0] >= want; i--) if (pts[i][0] === want) return [pts[i][1], pts[n - 1][1]];
+  return null;
+}
+
+/* The range's figures over a point list: high/low with their dates, the
+   mean, and the move from the first point to the last. null below two
+   points. */
+export function rangeStats(pts){
+  if (!pts || pts.length < 2) return null;
+  let hi = -Infinity, lo = Infinity, sum = 0, hiD = '', loD = '';
+  for (const [d, v] of pts){ sum += v; if (v > hi){ hi = v; hiD = d; } if (v < lo){ lo = v; loD = d; } }
+  const first = pts[0][1], last = pts[pts.length - 1][1];
+  return { high: hi, highDate: hiD, low: lo, lowDate: loD, avg: sum / pts.length,
+    first, last, change: last - first, pct: pctChange(first, last) };
+}
+
+/* Direction class for a relative move: 'up' / 'down' / 'flat' — below half
+   a basis point reads as flat, and so does NaN. */
+export function moveOf(p){ return !isFinite(p) || Math.abs(p) < 5e-5 ? 'flat' : p > 0 ? 'up' : 'down'; }
+
+/* Signed percentage, two decimals ("+1.23%"); '—' for NaN. */
+export function fmtPct(p, locale){
+  if (!isFinite(p)) return '—';
+  try { return new Intl.NumberFormat(locale, { style:'percent', minimumFractionDigits:2, maximumFractionDigits:2, signDisplay:'exceptZero' }).format(p); }
+  catch(_){ return (p > 0 ? '+' : '') + (p * 100).toFixed(2) + '%'; }
+}
+
+/* Signed absolute move at fmtRate's precision ("+0.0123"); '—' for NaN. */
+export function fmtDelta(v, locale){
+  if (!isFinite(v)) return '—';
+  const a = Math.abs(v), max = a >= 100 ? 4 : a >= 1 ? 5 : 6;
+  try { return new Intl.NumberFormat(locale, { maximumFractionDigits:max, minimumFractionDigits:0, signDisplay:'exceptZero' }).format(v); }
+  catch(_){ return (v > 0 ? '+' : '') + String(v); }
+}
+
+/* ── chart model ── */
+
+/* An SVG path for a point list in a w×h box: x by date (not by index, so a
+   sparser range keeps its time axis straight), y by rate with 8% headroom
+   above and below; a flat series gets a 2% band so it still draws a line.
+   → { d, xs } — the path string and each point's x, for the hover/keyboard
+   readout to look up. Needs at least one point. */
+export function sparkPath(pts, w, h){
+  let lo = Infinity, hi = -Infinity;
+  for (const p of pts){ if (p[1] < lo) lo = p[1]; if (p[1] > hi) hi = p[1]; }
+  let span = hi - lo; if (span <= 0) span = Math.abs(hi) * 0.02 || 1;
+  lo -= span * 0.08; hi += span * 0.08;
+  const t0 = Date.parse(pts[0][0]), t1 = Date.parse(pts[pts.length - 1][0]);
+  const xs = pts.map(p => ((Date.parse(p[0]) - t0) / ((t1 - t0) || 1)) * w);
+  const Y = v => h - (v - lo) / (hi - lo) * h;
+  let d = '';
+  pts.forEach((p, i) => { d += (i ? 'L' : 'M') + xs[i].toFixed(2) + ',' + Y(p[1]).toFixed(2) + ' '; });
+  return { d: d.trim(), xs };
+}
+
+/* The point nearest an x in the chart's own box (binary search over the
+   ascending xs sparkPath returned): which day a pointer is over. */
+export function nearestIndex(xs, x){
+  let lo = 0, hi = xs.length - 1;
+  if (hi < 0) return -1;
+  while (hi - lo > 1){ const mid = (lo + hi) >> 1; if (xs[mid] < x) lo = mid; else hi = mid; }
+  return (Math.abs(xs[lo] - x) <= Math.abs(xs[hi] - x)) ? lo : hi;
+}
+
+/* ── majors & ladders ── */
+
+/* The rows of the majors list against FROM: every major but FROM itself,
+   with TO leading when it is not one of them. */
+export function majorRows(from, to){
+  const rows = MAJORS.filter(c => c !== from);
+  if (to !== from && rows.indexOf(to) === -1) rows.unshift(to);
+  return rows;
+}
+
+/* A ready reckoner: round sums of `a` in `b`, the sums scaled to what `a`
+   is worth against the dollar (100 yen, 0.00001 BTC) so the first row is
+   roughly a dollar's worth. → [[amountA, amountB], …] × 8, or null when
+   the pair can't be quoted. Call twice, swapped, for both directions. */
+export function ladderRows(rates, a, b){
+  const ra = rateOf(rates, a), rb = rateOf(rates, b);
+  if (!isFinite(ra) || !isFinite(rb) || ra <= 0 || rb <= 0) return null;
+  const k = Math.round(Math.log10(ra) - 0.35);
+  return [1, 5, 10, 50, 100, 500, 1000, 5000].map(m => {
+    const x = Number((m * Math.pow(10, k)).toPrecision(12));
+    return [x, x * rb / ra];
+  });
 }
