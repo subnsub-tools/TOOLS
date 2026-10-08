@@ -56,6 +56,7 @@ about shapes:
 | [Timer](tools/timer/) | `timer-engine.js` | Timer / stopwatch / clock engine — drift-corrected, pause-safe. |
 | [Unix](tools/unix/) | `unix-time.js` | Unix timestamp ↔ date conversion. |
 | [Cron](tools/cron/) | `cron-parse.js` | Cron expression parser + next-run computation. |
+| [Calendar](tools/calendar/) | `calendar-context.js` | The date context the Calendar lays over its grid — ISO weeks, Moon phases, equinoxes and solstices, clock changes, public-holiday feeds folded into days off. |
 | [Currency](tools/fx/) | `fx-convert.js` | Cross-rate math over a USD-base rate table, plus the history model — range stats, day move, sparkline path, majors and conversion ladders. |
 | [Stocks](tools/stocks/) | `stock-quotes.js` | Quote payload normalisation, change math, sparkline shaping. |
 | [Weather](tools/weather/) | `weather-core.js` | Geocoding query strategy (CJK-aware), weather-code mapping, the city clock behind the hourly strip, wind units and Beaufort, favourite-place identity. |

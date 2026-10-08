@@ -1,0 +1,85 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Calendar context — demo</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 38rem; margin: 3rem auto; padding: 0 1rem; }
+  label { display: block; margin: 1rem 0 .25rem; }
+  input { font: inherit; box-sizing: border-box; }
+  pre { background: #f4f4f4; padding: .6rem; white-space: pre-wrap; }
+</style>
+
+<h1>Calendar context — demo</h1>
+
+<label for="month">Month</label>
+<input type="month" id="month">
+<label for="zone">Time zone (IANA, empty = this device)</label>
+<input type="text" id="zone" placeholder="Europe/Berlin" autocomplete="off">
+<pre id="digest">—</pre>
+
+<label for="day">The Moon on a day</label>
+<input type="date" id="day">
+<pre id="moon">—</pre>
+
+<h2>A holiday feed, folded</h2>
+<p>A sample of what <code>/api/ics</code> returns for a public-holiday feed,
+reduced to instances — then <code>holidayItems()</code> over it.</p>
+<pre id="holi">—</pre>
+
+<script type="module">
+  import { isoWeek, dayOfYear, daysInYear, moonState, phaseOfDay, moonPhaseTimes, monthDigest, holidayItems, zoneOffset } from './calendar-context.js';
+
+  const $ = (id) => document.getElementById(id);
+  const PHASE = ['New moon', 'First quarter', 'Full moon', 'Last quarter'];
+  const NAME8 = ['New moon', 'Waxing crescent', 'First quarter', 'Waxing gibbous', 'Full moon', 'Waning gibbous', 'Last quarter', 'Waning crescent'];
+  const SEASON = ['March equinox', 'June solstice', 'September equinox', 'December solstice'];
+  const zone = () => $('zone').value.trim();
+  const wall = (ms) => {
+    const t = new Date(ms + zoneOffset(ms, zone()) * 60000);
+    return t.toISOString().slice(0, 16).replace('T', ' ');
+  };
+
+  function digest() {
+    const v = $('month').value;
+    if (!/^\d{4}-\d{2}$/.test(v)) { $('digest').textContent = '—'; return; }
+    const [y, m] = v.split('-').map(Number);
+    const d = monthDigest(y, m - 1, zone());
+    const lines = [`Weeks       ${d.weeks[0]}–${d.weeks[1]}  (${d.days} days)`];
+    d.moon.forEach(x => lines.push(`${PHASE[x.phase].padEnd(12)}${wall(x.ms)}`));
+    d.seasons.forEach(x => lines.push(`${SEASON[x.kind].padEnd(12)}${wall(x.ms)}`));
+    d.clocks.forEach(x => lines.push(`Clocks      ${x.delta > 0 ? 'forward' : 'back'} ${Math.abs(x.delta)} min at ${wall(x.ms)} (new time)`));
+    $('digest').textContent = lines.join('\n');
+  }
+
+  function moon() {
+    const v = $('day').value;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) { $('moon').textContent = '—'; return; }
+    const [y, m, d] = v.split('-').map(Number);
+    const off = zoneOffset(Date.UTC(y, m - 1, d, 12), zone());
+    const start = Date.UTC(y, m - 1, d) - off * 60000, noon = start + 12 * 3600000;
+    const principal = moonPhaseTimes(start, start + 86400000)[0] || null;
+    const st = moonState(noon);
+    $('moon').textContent =
+      `ISO week    ${isoWeek(y, m - 1, d).week}\n` +
+      `Day         ${dayOfYear(y, m - 1, d)} of ${daysInYear(y)}\n` +
+      `Moon        ${NAME8[phaseOfDay(principal, st)]}${principal ? ' at ' + wall(principal.ms) : ''}\n` +
+      `Lit         ${(st.illum * 100).toFixed(1)}% at noon`;
+  }
+
+  /* 国庆节 + 黄金周 as Google's China feed files them: one event per day */
+  const inst = [
+    { k: '2026-10-01', n: 1, t: '国庆节', hk: 'p' },
+    ...[2, 3, 4, 5, 6, 7].map(d => ({ k: `2026-10-0${d}`, n: 1, t: '黄金周 (国庆节)', hk: 'p' })),
+    { k: '2026-10-18', n: 1, t: '重阳节', hk: 'o' },
+    { k: '2026-12-24', n: 1, t: 'Heiligabend (halber Tag)', hk: 'h' },
+    { k: '2026-12-25', n: 2, t: 'Weihnachten', hk: 'p' }
+  ];
+  $('holi').textContent = holidayItems(inst, '2026-09-01', '2026-12-31')
+    .map(h => `${h.k} → ${h.end}  ${String(h.n).padStart(2)} day(s)  [${h.kind}]  ${h.titles.join(' · ')}`).join('\n');
+
+  const today = new Date();
+  $('month').value = today.toISOString().slice(0, 7);
+  $('day').value = today.toISOString().slice(0, 10);
+  ['month', 'zone'].forEach(id => $(id).addEventListener('input', () => { digest(); moon(); }));
+  $('day').addEventListener('input', moon);
+  digest(); moon();
+</script>
