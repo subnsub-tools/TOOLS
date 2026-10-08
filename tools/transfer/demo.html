@@ -3,11 +3,12 @@
 <title>Transfer — demo</title>
 <style>
   body { font: 15px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; }
-  button { font: inherit; margin: .25rem .5rem .25rem 0; }
+  button, input { font: inherit; margin: .25rem .5rem .25rem 0; }
   #peers { margin: .75rem 0 1rem; }
   #xfers { padding-left: 1.25rem; }
   #xfers li { margin: .25rem 0; }
   .muted { color: #666; }
+  .roads { font-size: .85em; color: #666; margin-left: .5rem; }
 </style>
 
 <h1>Transfer — demo</h1>
@@ -15,41 +16,58 @@
 discover each other over a BroadcastChannel (no server anywhere) and file
 bytes move over a direct WebRTC data channel. Click the other tab's device
 button to send it a file — the first file asks for an accept over there, then
-it downloads on arrival.</p>
+it downloads on arrival. Once paired, the BroadcastChannel's byte pipe comes
+up as a second road beside the channel and the file races down both; the
+device button says which roads carry it.</p>
 
 <p>This device: <strong id="self"></strong> · status: <span id="status">—</span></p>
+<p>
+  <label>Dial a code: <input id="code" maxlength="6" size="8" autocomplete="off" spellcheck="false"></label>
+  <span class="muted">— the sixth character connects (out only: this tab hosts no room of its own until it joins one)</span>
+</p>
 <div id="peers" class="muted">Looking for other tabs…</div>
 <ul id="xfers"></ul>
 <input type="file" id="file" hidden>
 
 <script type="module">
-  import { TransferNode, deviceLabel } from './transfer.js';
+  import { TransferNode, deviceLabel, codeComplete, pairLinkCode } from './transfer.js';
 
   const $ = (id) => document.getElementById(id);
   const fmt = (n) => !Number.isFinite(n) ? '' : n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
   const rows = new Map();   /* one <li> per transfer, keyed by direction + item id */
   const row = (item, dir) => { const k = dir + ':' + item.id; let li = rows.get(k); if (!li) { li = document.createElement('li'); rows.set(k, li); $('xfers').appendChild(li); } return li; };
   const label = (item, dir) => (dir === 'send' ? '↑ ' : '↓ ') + (item.name || (item.file && item.file.name) || 'file');
+  const via = new Map();    /* item id → road it rides */
+  const roads = new Map();  /* peer id → roads report */
+  let roster = new Map();
+
+  function paintRoster() {
+    const host = $('peers'); host.textContent = '';
+    if (!roster.size) { host.textContent = 'Looking for other tabs… (open this page in a second tab)'; return; }
+    for (const [id, e] of roster) {
+      const b = document.createElement('button');
+      b.textContent = 'Send a file to “' + e.name + '”';
+      b.onclick = () => { const inp = $('file'); inp.onchange = () => { if (inp.files.length) node.sendTo(id, inp.files); inp.value = ''; }; inp.click(); };
+      host.appendChild(b);
+      const r = roads.get(id);
+      if (r) { const s = document.createElement('span'); s.className = 'roads'; s.textContent = 'roads: ' + (r.list.join(' + ') || 'none') + (r.mp ? ' (racing)' : '') + ' · tunnel: ' + r.tun; host.appendChild(s); }
+    }
+  }
 
   const node = new TransferNode({
     name: deviceLabel(),
     /* iceServers defaults to [] — host candidates only, which is exactly right
-       for two tabs of one browser (and for a real LAN). */
+       for two tabs of one browser (and for a real LAN). No relayIceServers,
+       link or tunnel here, so those legs report dead at once if the direct
+       attempt ever fails; the pipe leg rides the BroadcastChannel. */
     ui: {
       setStatus: (s) => { $('status').textContent = s; },
-      renderRoster: (roster) => {
-        const host = $('peers'); host.textContent = '';
-        if (!roster.size) { host.textContent = 'Looking for other tabs… (open this page in a second tab)'; return; }
-        for (const [id, e] of roster) {
-          const b = document.createElement('button');
-          b.textContent = 'Send a file to “' + e.name + '”';
-          b.onclick = () => { const inp = $('file'); inp.onchange = () => { if (inp.files.length) node.sendTo(id, inp.files); inp.value = ''; }; inp.click(); };
-          host.appendChild(b);
-        }
-      },
+      renderRoster: (r) => { roster = r; paintRoster(); },
+      peerRoads: (id, r) => { roads.set(id, r); paintRoster(); },
       addXfer: (pid, pname, item, dir) => { row(item, dir).textContent = label(item, dir) + (dir === 'send' ? ' → ' : ' ← ') + pname + ' — 0%'; },
-      xferProgress: (pid, item, frac, rate, eta, dir) => { row(item, dir).textContent = label(item, dir) + ' — ' + Math.round((frac || 0) * 100) + '%' + (rate ? ' · ' + fmt(rate) + '/s' : ''); },
-      xferDone: (pid, item, dir) => { row(item, dir).textContent = label(item, dir) + (dir === 'send' ? ' — sent ✓' : ' — received ✓ (downloaded)'); },
+      xferVia: (pid, item, dir, v) => { via.set(item.id, v); },
+      xferProgress: (pid, item, frac, rate, eta, dir) => { row(item, dir).textContent = label(item, dir) + ' — ' + Math.round((frac || 0) * 100) + '%' + (rate ? ' · ' + fmt(rate) + '/s' : '') + (via.get(item.id) ? ' · via ' + via.get(item.id) : ''); },
+      xferDone: (pid, item, dir) => { row(item, dir).textContent = label(item, dir) + (dir === 'send' ? ' — sent ✓' : ' — received ✓ (downloaded)') + (via.get(item.id) ? ' · via ' + via.get(item.id) : ''); },
       xferError: (pid, item, dir) => { row(item, dir).textContent = label(item, dir) + ' — ' + (item.status === 'declined' ? 'declined' : item.status === 'canceled' ? 'canceled' : 'failed'); },
       xferSuspend: (pid, item, dir) => { row(item, dir).textContent = label(item, dir) + ' — connection lost, resumable for 5 min…'; },
       xferAwait: (pid, item) => { row(item, 'send').textContent = label(item, 'send') + ' — waiting for the other tab to accept…'; },
@@ -66,6 +84,19 @@ it downloads on arrival.</p>
     },
   });
   $('self').textContent = node.name;
-  node.join();
+  node.join();   /* mode 'on': the shared no-code room, so two plain tabs meet */
+
+  /* Six-character auto-connect: the moment the entry holds a clean code it
+     dials — no button. A pasted pair link hands over its code whole. */
+  const entry = $('code');
+  entry.addEventListener('paste', (e) => {
+    const text = (e.clipboardData && e.clipboardData.getData('text')) || '';
+    const linked = pairLinkCode(text);
+    if (linked) { e.preventDefault(); entry.value = ''; node.dial(linked); }
+  });
+  entry.addEventListener('input', () => {
+    const c = codeComplete(entry.value);
+    if (c) { entry.value = ''; node.dial(c); }
+  });
   addEventListener('pagehide', () => node.close());
 </script>
