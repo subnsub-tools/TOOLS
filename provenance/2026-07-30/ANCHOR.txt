@@ -1,0 +1,4 @@
+repository: https://github.com/subnsub-tools/TOOLS
+anchored-head: db08287806b09973dd18ec9994cd1f738ae3ba1c
+anchored-tree: 47a9deecfc522e54a71dd3663f64b5369330bb20
+anchor-date: 2026-07-30
