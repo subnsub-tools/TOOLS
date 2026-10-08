@@ -324,28 +324,47 @@ var ASN_TYPE={
   24940:'Hosting',16276:'Hosting',14061:'Hosting',63949:'Hosting',
   20473:'Hosting',51167:'Hosting',12876:'Hosting',197540:'Hosting',
   8560:'Hosting',26496:'Hosting',46606:'Hosting',9009:'Hosting',
-  60068:'Hosting',212238:'Hosting'
+  60068:'Hosting',212238:'Hosting',
+  /* Satellite: Starlink, HughesNet, Viasat, Intelsat, Inmarsat, Skylogic
+     (Eutelsat). One AS each serves many countries. */
+  14593:'Satellite ISP',397763:'Satellite ISP',6621:'Satellite ISP',
+  7155:'Satellite ISP',40306:'Satellite ISP',16491:'Satellite ISP',
+  22351:'Satellite ISP',31515:'Satellite ISP',29286:'Satellite ISP',
+  /* Mobile-only networks whose names do not say so: NTT docomo, Rakuten
+     Mobile, AT&T Mobility, Verizon Wireless (Cellco), T-Mobile US, Sprint
+     PCS, Airtel's GPRS AS, Vodafone Idea, Telkomsel, SK Telecom, Taiwan
+     Mobile, Three UK. An AS that carries a carrier's fixed broadband as
+     well (KDDI, SoftBank, Jio, China Unicom…) stays ISP. */
+  9605:'Mobile ISP',138384:'Mobile ISP',20057:'Mobile ISP',6167:'Mobile ISP',
+  22394:'Mobile ISP',21928:'Mobile ISP',10507:'Mobile ISP',45609:'Mobile ISP',
+  38266:'Mobile ISP',23693:'Mobile ISP',9644:'Mobile ISP',24158:'Mobile ISP',
+  206067:'Mobile ISP'
 };
+/* The badge's severity channel per curated type: y datacenter space,
+   unusual for a human visitor; g an ordinary eyeball network. */
+var ASN_TYPE_C={'Cloud':'y','Hosting':'y','Satellite ISP':'g','Mobile ISP':'g'};
 
 /* Classify the kind of network an address belongs to from its AS number
    and organisation string (as BGP/WHOIS report them). Returns
    { type, c }: type is one of 'Hosting' | 'Cloud' | 'VPN / Proxy' |
-   'Tor' | 'Education' | 'Government' | 'Mobile ISP' | 'ISP' | 'Unknown';
+   'Tor' | 'Satellite ISP' | 'Education' | 'Government' | 'Mobile ISP' |
+   'ISP' | 'Unknown';
    c is the severity channel the site colours the badge with — 'r'
    (anonymisation infrastructure), 'y' (datacenter space, unusual for a
    human visitor), 'g' (ordinary eyeball network). */
 export function classifyASN(org,asn){
   var t=asn&&ASN_TYPE[asn];
-  if(t)return{type:t,c:'y'};
+  if(t)return{type:t,c:ASN_TYPE_C[t]||'y'};
   if(!org)return{type:'Unknown',c:'y'};
   var o=org.toLowerCase();
   if(/hosting|hetzner|ovh|vultr|linode|digitalocean|data.?cent|rackspace|contabo|kamatera|scaleway/.test(o))return{type:'Hosting',c:'y'};
   if(/amazon|google|microsoft|azure|oracle|alibaba|tencent|ibm.cloud/.test(o))return{type:'Cloud',c:'y'};
   if(/vpn|proxy|tunnel|mullvad|nordvpn|expressvpn|surfshark|cyberghost|proton|private.internet|windscribe/.test(o))return{type:'VPN / Proxy',c:'r'};
   if(/tor\b|relay|exit.node/.test(o))return{type:'Tor',c:'r'};
+  if(/starlink|spacex|space exploration|hughes ?net|viasat|intelsat|inmarsat|eutelsat|skylogic|oneweb|iridium|kacific|thuraya/.test(o))return{type:'Satellite ISP',c:'g'};
   if(/universit|college|school|academ|research|\.edu/.test(o))return{type:'Education',c:'g'};
   if(/government|defense|military|federal|ministry/.test(o))return{type:'Government',c:'g'};
-  if(/mobile|wireless|cellular|vodafone|t-mobile|sprint/.test(o))return{type:'Mobile ISP',c:'g'};
+  if(/mobile|mobility|wireless|cellular|cellco|gprs|vodafone|t-mobile|sprint/.test(o))return{type:'Mobile ISP',c:'g'};
   return{type:'ISP',c:'g'};
 }
 

@@ -50,6 +50,7 @@ classifyCandidateAddress('2001:db8::1');  // 'pub'
 parseCandidate('candidate:1 1 udp 1 203.0.113.7 51234 typ srflx raddr 192.168.1.10 rport 51234');
 // → { proto:'udp', addr:'203.0.113.7', port:51234, typ:'srflx', raddr:'192.168.1.10', rport:51234 }
 classifyASN('Mullvad VPN AB', 0);         // { type: 'VPN / Proxy', c: 'r' }
+classifyASN('', 14593);                   // { type: 'Satellite ISP', c: 'g' }  (Starlink)
 
 ipv6Anatomy('2001:db8:1:2:21a:2bff:fe3c:4d5e');
 // → { prefix: '2001:db8:1:2::/64', iid: 'eui64', mac: '00:1a:2b:3c:4d:5e' }
@@ -187,10 +188,13 @@ The tab feeds `assessExposure()` the address the site's own edge observed
 for the connection (its `/api/ip` echo); any what-is-my-IP witness works
 as `publicIp`. The same result drives the UDP and NAT Mapping rows via
 `anySrflx` and `assessNatMapping()`. The site version additionally runs
-a server-side IP reputation lookup (`/api/iprep`, membership checks
-against public blocklists compiled server-side) — a server component,
+a server-side IP reputation lookup (`/api/iprep`: membership checks
+against public lists compiled server-side, among them Apple's iCloud
+Private Relay egress ranges, and the AS's registration country from Team
+Cymru compared with the address's geolocation) — a server component,
 deliberately not part of this module; under its rows the tab lists each
-blocklist's size and the age of the copy checked. `classifyASN()` is the
-client-side network-type classifier both views share; `ipv6Anatomy()`
-reads the IPv6 Readiness card's address and `kexInfo()` the Connection
-card's trace.
+list's size and the age of the copy checked. `classifyASN()` is the
+client-side network-type classifier both views share (the site types a
+Private Relay egress from that server-side list instead, since its AS is
+a CDN's); `ipv6Anatomy()` reads the IPv6 Readiness card's address and
+`kexInfo()` the Connection card's trace.
