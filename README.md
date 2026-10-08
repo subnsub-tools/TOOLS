@@ -56,14 +56,14 @@ about shapes:
 | [Timer](tools/timer/) | `timer-engine.js` | Timer / stopwatch / clock engine — drift-corrected, pause-safe. |
 | [Unix](tools/unix/) | `unix-time.js` | Unix timestamp ↔ date conversion. |
 | [Cron](tools/cron/) | `cron-parse.js` | Cron expression parser + next-run computation. |
-| [Currency](tools/fx/) | `fx-convert.js` | Cross-rate math over a USD-base rate table. |
+| [Currency](tools/fx/) | `fx-convert.js` | Cross-rate math over a USD-base rate table, plus the history model — range stats, day move, sparkline path, majors and conversion ladders. |
 | [Stocks](tools/stocks/) | `stock-quotes.js` | Quote payload normalisation, change math, sparkline shaping. |
-| [Weather](tools/weather/) | `weather-core.js` | Geocoding query strategy (CJK-aware) + weather-code mapping. |
-| [Speed](tools/speed/) | `speed-orchestrate.js` | Measurement orchestration + scoring around the speed-test engine. |
-| [My IP](tools/myip/) | `ip-exposure.js` | Local-address probing + IP classification and exposure summary. |
+| [Weather](tools/weather/) | `weather-core.js` | Geocoding query strategy (CJK-aware), weather-code mapping, the city clock behind the hourly strip, wind units and Beaufort, favourite-place identity. |
+| [Speed](tools/speed/) | `speed-orchestrate.js` | Measurement plans, engine options and scoring around the speed-test engine, and which phases may be paused. |
+| [My IP](tools/myip/) | `ip-exposure.js` | Local-address probing, NAT mapping behaviour read off a two-server STUN gather, IP classification and exposure summary. |
 | [Clipboard](tools/clipboard/) | `clipboard-core.js` | Clipboard interop layer — Safari-safe writes, guarded image decode. |
-| [Relay](tools/relay/) | `relay-upload.js` | Upload orchestration — batching, concurrency, per-lane lifetimes, text-paste lane. |
-| [Transfer](tools/transfer/) | `transfer.js` | WebRTC P2P file transfer — chunking, resume, streaming sink. |
+| [Relay](tools/relay/) | `relay-upload.js` | Upload orchestration — batching, concurrency, per-lane lifetimes, text-paste lane, which drops open as text instead of uploading, history pruning. |
+| [Transfer](tools/transfer/) | `transfer.js` | WebRTC P2P file transfer — chunking, resume, streaming sink, the sealed relay pipe, TURN and upload-link fallbacks, an injectable tunnel leg, every road raced at once, out-only mode. |
 | [Melody](tools/melody/) | `melody-core.js` | WebAudio synth, melody format, MIDI (SMF) import. |
 
 Each directory is self-contained: one dependency-free module, one plain
