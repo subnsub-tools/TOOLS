@@ -10,7 +10,8 @@ its own.
 ## Files
 
 - [`speed-orchestrate.js`](speed-orchestrate.js) — the module: plans
-  (`PROFILES`, `buildMeasurements()`, `engineConfig()`), calibers
+  (`PROFILES`, `buildMeasurements()`, `engineConfig()`,
+  `DEFAULT_TURN_CREDS_URL`), run control (`pausablePhase()`), calibers
   (`bufferbloat()`, `summarizeResult()`, `bwRows()`, `medianOf()`,
   `fmt*()`), history ledger (`addItem()`, `removeItem()`, `mergeItems()`)
 - [`demo.html`](demo.html) — minimal standalone page exercising the
@@ -19,28 +20,53 @@ its own.
 ## Engine dependency
 
 The site drives [`@cloudflare/speedtest`](https://github.com/cloudflare/speedtest)
-(MIT license), which measures download/upload/latency/jitter/packet loss
-against Cloudflare's edge (`speed.cloudflare.com` endpoints). That code
-is **not** re-published here — only our orchestration is. Two of its
-constructor options matter to this module's contract:
+1.13 (MIT license), which measures download/upload/latency/jitter/packet
+loss against Cloudflare's edge (`speed.cloudflare.com/__down` and
+`/__up` for transfers; a TURN relay for the packet-loss probe). That
+code is **not** re-published here — only our orchestration is. Three of
+its constructor options matter to this module's contract:
 
 - `engineConfig()` sets `logAimApiUrl: null`, so the engine never posts
-  AIM telemetry to its default logging endpoint — results stay on the
-  page.
+  AIM telemetry to its default logging endpoint (since 1.13 that default
+  is `speed.cloudflare.com/__results`; before, `aim.cloudflare.com/__log`)
+  — results stay on the page. The engine's `onResultsLogged` hook
+  therefore never fires.
+- `engineConfig()` sets `turnServerCredsApiUrl` to the site's own
+  credentials endpoint (`/api/speed-turn`, exported as
+  `DEFAULT_TURN_CREDS_URL`; pass your own as the second argument). The
+  engine's default, `speed.cloudflare.com/turn-creds`, went
+  same-origin-only (403 + no ACAO for foreign Origins, verified
+  2026-08-11), which silently disables the WebRTC packet-loss probe on
+  any other site — and with it the `packetLoss` input to all three
+  experience scores. The endpoint must answer the shape the engine's
+  default `turnServerCredsApiParser` destructures,
+  `{ username, credential, server }`; on an `{ error }` answer the engine
+  records a credentials failure and the run continues without a loss
+  number, as it does on UDP-hostile networks. The site mints
+  short-lived (300 s) anonymous Cloudflare Realtime TURN credentials
+  behind per-IP and sitewide rate windows; that server code is not part
+  of this module.
 - `autoStart` is off because callbacks are wired before `play()`.
 
 ## Usage
 
 ```js
 import {
-  buildMeasurements, engineConfig, bufferbloat, summarizeResult,
+  buildMeasurements, engineConfig, pausablePhase, bufferbloat, summarizeResult,
   bwRows, fmtBps, fmtMs, fmtLoss, fmtLoaded,
   addItem, removeItem, mergeItems,
 } from './speed-orchestrate.js';
 import SpeedTest from '@cloudflare/speedtest'; // the MIT engine, installed separately
 
 const plan = buildMeasurements('standard', { download: true, upload: true, latency: true });
-const engine = new SpeedTest(engineConfig(plan));
+const engine = new SpeedTest(engineConfig(plan /*, '/your/turn-creds' */));
+
+// Pause/Resume: hand engine.pause() only to phases that can take it;
+// during packet loss bank the request and apply it at the next
+// onPhaseChange (see "Run control" below).
+let phase = null;
+engine.onPhaseChange = (p) => { phase = p.measurement && p.measurement.type; };
+const requestPause = () => { if (pausablePhase(phase)) engine.pause(); /* else: bank it */ };
 
 engine.onFinish = (results) => {
   const s = results.getSummary();
@@ -73,6 +99,16 @@ The module consumes the engine's results object as plain values:
   Loaded-latency fields report `≤ 0` when the run's profile didn't
   capture them; `bufferbloat()` and `summarizeResult()` both gate on
   `> 0` so an unmeasured leg can never read as a perfect link.
+  Since 1.13 the engine accumulates **every** idle `latency` step of the
+  plan into one timing set, so `latency`/`jitter` are the percentile over
+  the whole run — which is why the standard/thorough plans interleave
+  2-packet latency steps between the sized rounds. Idle latency is also
+  measured more honestly than before: the edge now splits
+  `Server-Timing` into `cfSpeedEdge`/`cfSpeedWorker` entries and the
+  engine subtracts their sum (older builds subtracted only the first,
+  so ~30 ms of worker time read as network), with a small calibrated
+  `serverTimeDelta` on HTTP/1.x connections. Every sized request (uploads
+  too, since 1.13) carries a `bytes` query parameter.
 - `results.getDownloadBandwidthPoints()` / `getUploadBandwidthPoints()` →
   `[{ bytes, bps, duration }]` per sized request. `bwRows()` applies the
   engine's own validity floor (a usable `bps` on a request that ran at
@@ -83,13 +119,33 @@ The module consumes the engine's results object as plain values:
 
 ## Plans
 
-`PROFILES.standard` tracks the engine's default plan (with the WebRTC
-packet-loss probe pulled ahead of the sized transfers); `quick` is a
-seconds-long pass without the loss probe; `thorough` raises sample counts
-and adds a final 100 MB upload. `buildMeasurements()` filters a plan by
-the include toggles — packet loss rides the latency toggle, since it is a
-latency-family quality probe. An all-off selection yields an empty plan,
-which the site refuses to start.
+`PROFILES.standard` tracks the engine's 1.13 default plan — a 2-packet
+latency opener, a warm-up download, a 20-packet latency burst, then the
+sized rounds with a 2-packet idle-latency step between each — with the
+WebRTC packet-loss probe pulled ahead of the sized transfers (upstream
+runs it after the first upload round) so a TURN-blocked network shows its
+blank Packet Loss cell early rather than minutes in; `quick` is a
+seconds-long pass without the loss probe or the interleaved steps;
+`thorough` raises sample counts and adds a final 100 MB upload.
+`buildMeasurements()` filters a plan by the include toggles — packet loss
+rides the latency toggle, since it is a latency-family quality probe, and
+with latency off the interleaved steps go too, so a bandwidth-only run
+has no idle baseline and `bufferbloat()` returns null. An all-off
+selection yields an empty plan, which the site refuses to start.
+
+## Run control
+
+The site offers Pause/Resume while a run is live, over the engine's own
+`pause()`/`play()`: bandwidth and latency steps pause cleanly (the
+in-flight request aborts, `play()` resumes exactly where it stopped, and
+`totalDurationMs` already excludes paused wall-time). The packet-loss
+step cannot be paused — its WebRTC engine has no pause, and calling
+`engine.pause()` during it marks the engine stopped while the probe keeps
+going, so a resume would advance into the next step and the probe's own
+finish would advance again, overlapping two measurements.
+`pausablePhase(type)` is that rule: when it is false the site banks the
+request and applies the real `pause()` on the next `onPhaseChange`;
+resume only calls `play()` on an engine that actually stopped.
 
 ## History model
 

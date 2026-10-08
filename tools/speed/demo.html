@@ -12,10 +12,13 @@
 </style>
 
 <h1>Speed Test orchestration — demo</h1>
-<p>The transfer engine (<code>@cloudflare/speedtest</code>, MIT) is not part
-of this repository, so this page does not run a real test — it feeds the
-module the real measurement plans plus a hand-written sample of the engine's
-results object.</p>
+<p>The transfer engine (<code>@cloudflare/speedtest</code> 1.13, MIT) is not
+part of this repository, so this page does not run a real test — it feeds
+the module the real measurement plans plus a hand-written sample of the
+engine's results object. The <code>turnServerCredsApiUrl</code> in the
+generated config is the site's own packet-loss credentials endpoint; a
+deployment elsewhere passes its own as the second argument of
+<code>engineConfig()</code>.</p>
 
 <h2>Measurement plan</h2>
 <fieldset>
@@ -45,7 +48,7 @@ results object.</p>
 
 <script type="module">
   import {
-    buildMeasurements, engineConfig, bufferbloat, summarizeResult,
+    buildMeasurements, engineConfig, pausablePhase, bufferbloat, summarizeResult,
     bwRows, medianOf, fmtBps, fmtMs, fmtLoss, fmtLoaded,
     addItem, removeItem, mergeItems,
   } from './speed-orchestrate.js';
@@ -61,9 +64,19 @@ results object.</p>
       latency: $('inc-latency').checked,
     };
     const meas = buildMeasurements(profile, includes);
-    $('plan').textContent = meas.length
-      ? 'new SpeedTest(' + JSON.stringify(engineConfig(meas), null, 2) + ')'
-      : '(empty plan — the site refuses to start a run with nothing included)';
+    if (!meas.length) {
+      $('plan').textContent = '(empty plan — the site refuses to start a run with nothing included)';
+      return;
+    }
+    /* Second argument = your own TURN-credentials endpoint; omitted here so
+       the site's default shows. */
+    const steps = {};
+    meas.forEach((m) => { steps[m.type] = (steps[m.type] || 0) + 1; });
+    $('plan').textContent =
+      'new SpeedTest(' + JSON.stringify(engineConfig(meas), null, 2) + ')\n\n' +
+      'steps: ' + Object.keys(steps).map((t) =>
+        t + ' ×' + steps[t] + (pausablePhase(t) ? '' : ' (not pausable — pause is banked until the next phase)')
+      ).join(', ');
   }
   document.querySelectorAll('input[name="profile"], fieldset input[type="checkbox"]')
     .forEach((i) => i.addEventListener('change', renderPlan));

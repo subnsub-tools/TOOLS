@@ -7,7 +7,10 @@
    around the engine:
 
      - the measurement plans handed to it (three effort profiles plus
-       per-direction include toggles),
+       per-direction include toggles) and the constructor options paired
+       with a plan,
+     - the one run-control rule the site enforces around the engine's
+       pause(): which phases may be interrupted,
      - the summary calibers applied to its results object — bufferbloat
        grading, the clean-finish record shape, raw-sample grouping, and
        the display precision tiers,
@@ -25,7 +28,16 @@
    is scored. `standard` tracks the engine's default plan (with the
    packet-loss probe pulled ahead of the sized transfers); `quick` trades
    precision for a seconds-long run and skips the loss probe entirely;
-   `thorough` raises sample counts and adds a final 100 MB upload. */
+   `thorough` raises sample counts and adds a final 100 MB upload.
+
+   standard/thorough interleave 2-packet idle-latency steps between the
+   sized bandwidth rounds, mirroring the engine's 1.13 plan: the engine
+   accumulates every latency step into one timing set, so the idle
+   latency/jitter summary samples the whole run instead of only its
+   first seconds. packetLoss stays pulled up right after the first
+   latency burst (unlike upstream, which runs it after the first upload
+   round) so a TURN-blocked network shows its blank Packet Loss cell
+   early rather than minutes in. */
 export const PROFILES = {
   quick: [
     { type: 'latency', numPackets: 5 },
@@ -35,38 +47,59 @@ export const PROFILES = {
     { type: 'upload', bytes: 1e6, count: 4 }
   ],
   standard: [
-    { type: 'latency', numPackets: 1 },
+    { type: 'latency', numPackets: 2 },
     { type: 'download', bytes: 1e5, count: 1, bypassMinDuration: true },
     { type: 'latency', numPackets: 20 },
     { type: 'packetLoss', numPackets: 1e3, batchSize: 10, batchWaitTime: 10, responsesWaitTime: 3e3 },
     { type: 'download', bytes: 1e5, count: 9 },
+    { type: 'latency', numPackets: 2 },
     { type: 'download', bytes: 1e6, count: 8 },
+    { type: 'latency', numPackets: 2 },
     { type: 'upload', bytes: 1e5, count: 8 },
+    { type: 'latency', numPackets: 2 },
     { type: 'upload', bytes: 1e6, count: 6 },
+    { type: 'latency', numPackets: 2 },
     { type: 'download', bytes: 1e7, count: 6 },
+    { type: 'latency', numPackets: 2 },
     { type: 'upload', bytes: 1e7, count: 4 },
+    { type: 'latency', numPackets: 2 },
     { type: 'download', bytes: 25e6, count: 4 },
+    { type: 'latency', numPackets: 2 },
     { type: 'upload', bytes: 25e6, count: 4 },
+    { type: 'latency', numPackets: 2 },
     { type: 'download', bytes: 1e8, count: 3 },
+    { type: 'latency', numPackets: 2 },
     { type: 'upload', bytes: 5e7, count: 3 },
+    { type: 'latency', numPackets: 2 },
     { type: 'download', bytes: 25e7, count: 2 }
   ],
   thorough: [
-    { type: 'latency', numPackets: 1 },
+    { type: 'latency', numPackets: 2 },
     { type: 'download', bytes: 1e5, count: 1, bypassMinDuration: true },
     { type: 'latency', numPackets: 40 },
     { type: 'packetLoss', numPackets: 1e3, batchSize: 10, batchWaitTime: 10, responsesWaitTime: 3e3 },
     { type: 'download', bytes: 1e5, count: 12 },
+    { type: 'latency', numPackets: 2 },
     { type: 'download', bytes: 1e6, count: 12 },
+    { type: 'latency', numPackets: 2 },
     { type: 'upload', bytes: 1e5, count: 12 },
+    { type: 'latency', numPackets: 2 },
     { type: 'upload', bytes: 1e6, count: 8 },
+    { type: 'latency', numPackets: 2 },
     { type: 'download', bytes: 1e7, count: 8 },
+    { type: 'latency', numPackets: 2 },
     { type: 'upload', bytes: 1e7, count: 6 },
+    { type: 'latency', numPackets: 2 },
     { type: 'download', bytes: 25e6, count: 6 },
+    { type: 'latency', numPackets: 2 },
     { type: 'upload', bytes: 25e6, count: 6 },
+    { type: 'latency', numPackets: 2 },
     { type: 'download', bytes: 1e8, count: 4 },
+    { type: 'latency', numPackets: 2 },
     { type: 'upload', bytes: 5e7, count: 4 },
+    { type: 'latency', numPackets: 2 },
     { type: 'download', bytes: 25e7, count: 3 },
+    { type: 'latency', numPackets: 2 },
     { type: 'upload', bytes: 1e8, count: 3 }
   ]
 };
@@ -95,9 +128,48 @@ export function buildMeasurements(profile, includes){
 /* Constructor options the site pairs with a plan. autoStart is off
    because result/phase callbacks are wired before play() is called;
    logAimApiUrl is null so the engine never posts AIM telemetry to its
-   default logging endpoint — results stay on the page. */
-export function engineConfig(measurements){
-  return { autoStart: false, logAimApiUrl: null, measurements: measurements };
+   default logging endpoint — results stay on the page.
+
+   turnServerCredsApiUrl replaces the engine's default credentials
+   endpoint for the packet-loss probe. speed.cloudflare.com/turn-creds
+   went same-origin-only (403 + no ACAO for foreign Origins, verified
+   2026-08-11), which silently killed the WebRTC probe on any other
+   site — and with it the packetLoss input that feeds all three
+   experience scores. The site answers from its own minting endpoint
+   (/api/speed-turn, short-lived anonymous Cloudflare Realtime TURN
+   credentials) in the same { username, credential, server } shape the
+   engine's default parser destructures; on its { error } answers the
+   engine records the usual credentials failure and the run continues
+   loss-blind, same as on UDP-hostile networks. The site's path is the
+   default here; another deployment passes the URL of its own endpoint.
+     measurements          buildMeasurements() output
+     turnServerCredsApiUrl optional, default '/api/speed-turn' */
+export const DEFAULT_TURN_CREDS_URL = '/api/speed-turn';
+export function engineConfig(measurements, turnServerCredsApiUrl){
+  return {
+    autoStart: false,
+    logAimApiUrl: null,
+    turnServerCredsApiUrl: turnServerCredsApiUrl || DEFAULT_TURN_CREDS_URL,
+    measurements: measurements
+  };
+}
+
+/* ── run control ───────────────────────────────────────────────────────
+   Whether a pause request may be handed to engine.pause() while a step
+   of this type is running. Bandwidth and latency steps pause cleanly
+   (the in-flight request aborts, play() resumes exactly where it
+   stopped, and totalDurationMs already excludes paused wall-time). The
+   packet-loss step is the exception: its WebRTC engine has no pause,
+   and worse, engine.pause()/play() around it corrupt the run — pause()
+   marks the engine stopped while the probe keeps going, so a resume
+   would advance into the following step and the probe's own finish
+   would advance AGAIN, overlapping two measurements. The site therefore
+   never touches the engine during packet loss: it banks the intent and
+   applies the real pause at the next phase boundary (onPhaseChange),
+   and a resume only calls play() on an engine that actually stopped.
+     type  the measurement type from onPhaseChange's payload */
+export function pausablePhase(type){
+  return type !== 'packetLoss';
 }
 
 /* ── display calibers ──────────────────────────────────────────────────
