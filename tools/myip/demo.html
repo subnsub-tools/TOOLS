@@ -12,12 +12,14 @@
 <h1>My IP — WebRTC exposure demo</h1>
 <p>Collects the addresses WebRTC discloses through ICE candidates,
 classifies each (private / link-local / CGNAT / loopback / ULA vs public),
-and renders the leak verdict against the public IP you paste in (copy it
-from any "what is my IP" page). With STUN enabled the probe's only network
-traffic is one STUN binding request; untick it for a fully local probe.
-Needs a browser with WebRTC.</p>
+renders the leak verdict against the public IP you paste in (copy it
+from any "what is my IP" page), and reads the NAT's mapping behaviour off
+the same candidates. With STUN enabled the probe's only network traffic
+is STUN binding requests to two public servers (Google and Cloudflare);
+untick it for a fully local probe with no NAT reading. Needs a browser
+with WebRTC.</p>
 
-<label><input type="checkbox" id="stun" checked> Contact STUN server (required to surface public candidates)</label>
+<label><input type="checkbox" id="stun" checked> Contact STUN servers (required to surface public candidates and the NAT reading)</label>
 <label>Public IP websites see for you (optional) <input id="pub" placeholder="203.0.113.7" size="30"></label>
 <button id="run">Detect</button>
 <pre id="out"></pre>
@@ -27,6 +29,11 @@ Needs a browser with WebRTC.</p>
 <button id="cls">Classify</button>
 <span id="clsout"></span>
 
+<h2>Parse a candidate string</h2>
+<label>Candidate <input id="cand" value="candidate:1 1 udp 2122260223 203.0.113.7 51234 typ srflx raddr 192.168.1.10 rport 51234" size="60"></label>
+<button id="candbtn">Parse</button>
+<span id="candout"></span>
+
 <h2>Network type from ASN / org</h2>
 <label>Org string <input id="org" value="EXAMPLE-HOSTING-GMBH" size="30"></label>
 <label>ASN (number, optional) <input id="asn" value="24940" size="10"></label>
@@ -34,14 +41,19 @@ Needs a browser with WebRTC.</p>
 <span id="asnout"></span>
 
 <script type="module">
-  import { detectWebRTCAddresses, assessExposure, classifyCandidateAddress, classifyASN } from './ip-exposure.js';
+  import {
+    detectWebRTCAddresses, assessExposure, assessNatMapping,
+    classifyCandidateAddress, parseCandidate, classifyASN,
+  } from './ip-exposure.js';
 
   const $ = (id) => document.getElementById(id);
-  const VERDICT = { 'leak': 'Leak Detected', 'protected': 'Protected', 'no-leak': 'No Leak' };
+  const VERDICT = { 'leak': 'Leak Detected', 'protected': 'Protected', 'no-leak': 'No Leak', 'unavailable': 'N/A (WebRTC unavailable)' };
+  const NAT = { 'independent': 'Endpoint-Independent', 'dependent': 'Endpoint-Dependent', 'unsure': 'Inconclusive' };
 
   $('run').onclick = async () => {
-    $('out').textContent = 'Gathering candidates (up to 5 s)…';
-    const ips = await detectWebRTCAddresses($('stun').checked ? {} : { iceServers: [] });
+    $('out').textContent = 'Gathering candidates (up to 6 s)…';
+    const stun = $('stun').checked;
+    const ips = await detectWebRTCAddresses(stun ? {} : { iceServers: [] });
     const pub = $('pub').value.trim();
     const lines = [];
     ips.local.forEach((a) => lines.push('local   ' + a));
@@ -49,14 +61,26 @@ Needs a browser with WebRTC.</p>
     if (!lines.length) lines.push('(no addresses disclosed)');
     const v = assessExposure(ips, pub);
     lines.push('');
-    lines.push('Verdict: ' + VERDICT[v.status] + (pub ? '' : '   (no public IP supplied — leak comparison skipped)'));
+    lines.push('Verdict: ' + VERDICT[v.status] + (pub || v.status === 'unavailable' ? '' : '   (no public IP supplied — leak comparison skipped)'));
     v.leaked.forEach((a) => lines.push('  leaked: ' + a));
+    if (ips.supported && stun) {
+      lines.push('');
+      lines.push('UDP:         ' + (ips.anySrflx ? 'Open' : 'No STUN reply'));
+      lines.push('NAT Mapping: ' + NAT[assessNatMapping(ips)]);
+      lines.push('  (main leg IPv4 srflx: ' + ips.srflx4.length + ', IPv4 hosts: ' + ips.hosts4 +
+                 ', servers confirmed: ' + (ips.okMain ? 'main ' : '') + (ips.okAlt ? 'alt' : '') + ')');
+    }
     $('out').textContent = lines.join('\n');
   };
 
   $('cls').onclick = () => {
     const r = classifyCandidateAddress($('addr').value.trim());
     $('clsout').textContent = r === null ? 'null (not an IP address)' : r;
+  };
+
+  $('candbtn').onclick = () => {
+    const r = parseCandidate($('cand').value.trim());
+    $('candout').textContent = r === null ? 'null (too short)' : JSON.stringify(r);
   };
 
   $('asnbtn').onclick = () => {
