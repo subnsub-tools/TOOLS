@@ -1342,6 +1342,105 @@
   }
 
   /* ── top-level evaluate ─────────────────────────────────────────── */
+  /* ── integer facts: prime?, its factors, divisors, digits ─────────
+     For an integer answer with |n| ≥ 2 (up to 512 bits): trial division by
+     the primes under 10,000, then Miller–Rabin and Pollard–Brent rho for
+     what is left, under a step budget so live typing never stalls. A
+     cofactor still unsplit when the budget runs out is reported as such
+     (rest), never guessed. Miller–Rabin on the first 13 primes is a proof
+     below ψ13 = 3,317,044,064,679,887,385,961,981 (itself a strong
+     pseudoprime to all 13 — base 43 exposes it); at or above it the test
+     runs on the first 20 primes and a prime it finds is only probable, which
+     the card says (probable). A prime is positive: −13 is −1 × 13. */
+  var SMALL_PRIMES = (function () {
+    var out = [], sieve = new Uint8Array(10001);
+    for (var i = 2; i <= 10000; i++) { if (sieve[i]) continue; out.push(i); for (var j = i * i; j <= 10000; j += i) sieve[j] = 1; }
+    return out;
+  })();
+  var RHO_BUDGET = 30000;
+  function modPowBig(b, e, m) { var r = 1n; b %= m; while (e > 0n) { if (e & 1n) r = r * b % m; b = b * b % m; e >>= 1n; } return r; }
+  var MR_PROOF = 3317044064679887385961981n;
+  function isProbablePrime(n) {
+    if (n < 2n) return false;
+    for (var i = 0; i < 20; i++) { var p = BigInt(SMALL_PRIMES[i]); if (n === p) return true; if (n % p === 0n) return false; }
+    var d = n - 1n, s = 0;
+    while ((d & 1n) === 0n) { d >>= 1n; s++; }
+    for (var k = 0, bases = n < MR_PROOF ? 13 : 20; k < bases; k++) {
+      var x = modPowBig(BigInt(SMALL_PRIMES[k]), d, n);
+      if (x === 1n || x === n - 1n) continue;
+      var composite = true;
+      for (var r = 1; r < s; r++) { x = x * x % n; if (x === n - 1n) { composite = false; break; } }
+      if (composite) return false;
+    }
+    return true;
+  }
+  function absBig(v) { return v < 0n ? -v : v; }
+  function rhoBrent(n, budget) { // a proper factor of the composite n, or null once the budget is spent
+    if (n % 2n === 0n) return 2n;
+    for (var c = 1n; c < 16n && budget.left > 0; c++) {
+      var f = function (v) { return (v * v + c) % n; };
+      var y = 2n, r = 1n, q = 1n, g = 1n, m = 64n, x = 2n, ys = 2n;
+      while (g === 1n && budget.left > 0) {
+        x = y;
+        for (var i = 0n; i < r; i++) y = f(y);
+        var k = 0n;
+        while (k < r && g === 1n && budget.left > 0) {
+          ys = y;
+          var lim = m < r - k ? m : r - k;
+          for (var j = 0n; j < lim; j++) { y = f(y); q = q * absBig(x - y) % n; }
+          budget.left -= Number(lim);
+          g = gcdBig(q, n);
+          k += m;
+        }
+        r *= 2n;
+      }
+      if (g === n) { g = 1n; while (g === 1n && budget.left-- > 0) { ys = f(ys); g = gcdBig(absBig(x - ys), n); } }
+      if (g !== 1n && g !== n) return g;
+    }
+    return null;
+  }
+  function factorBig(n) { // n ≥ 2 → { f: [[p, e], …] ascending, rest: unsplit composite or null }
+    var f = {}, add = function (p) { var key = p.toString(); f[key] = (f[key] || 0) + 1; };
+    for (var i = 0; i < SMALL_PRIMES.length; i++) {
+      var p = BigInt(SMALL_PRIMES[i]);
+      if (p * p > n) break;
+      while (n % p === 0n) { add(p); n /= p; }
+    }
+    var budget = { left: RHO_BUDGET }, rest = 1n, stack = n > 1n ? [n] : [];
+    while (stack.length) {
+      var m = stack.pop();
+      if (m === 1n) continue;
+      if (isProbablePrime(m)) { add(m); continue; }
+      var d = budget.left > 0 ? rhoBrent(m, budget) : null;
+      if (!d) { rest *= m; continue; }
+      stack.push(d, m / d);
+    }
+    var list = Object.keys(f).map(function (k) { return [BigInt(k), f[k]]; })
+      .sort(function (a, b) { return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0; });
+    return { f: list, rest: rest > 1n ? rest : null };
+  }
+  function intCard(x) {
+    if (x.k !== 'r' || x.d !== 1n) return null;
+    var n = absBig(x.n);
+    if (n < 2n || bitLen(n) > 512) return null;
+    var s = n.toString(), sum = 0;
+    for (var i = 0; i < s.length; i++) sum += s.charCodeAt(i) - 48;
+    var fz = factorBig(n), divisors = null;
+    if (!fz.rest) { divisors = 1n; fz.f.forEach(function (pe) { divisors *= BigInt(pe[1] + 1); }); }
+    var sign = x.n < 0n ? '-' : '';
+    return {
+      t: 'int', neg: x.n < 0n,
+      prime: x.n > 0n && !fz.rest && fz.f.length === 1 && fz.f[0][1] === 1,
+      probable: fz.f.some(function (pe) { return pe[0] >= MR_PROOF; }),
+      factors: fz.f.map(function (pe) { return [pe[0].toString(), pe[1]]; }),
+      rest: fz.rest ? fz.rest.toString() : null,
+      divisors: divisors != null ? divisors.toString() : null,
+      digits: s.length, digitSum: sum,
+      hex: bitLen(n) <= 64 ? sign + '0x' + n.toString(16).toUpperCase() : null,
+      bin: bitLen(n) <= 32 ? sign + '0b' + n.toString(2) : null
+    };
+  }
+
   function evaluate(src, opts) {
     opts = opts || {};
     src = String(src || '');
@@ -1385,6 +1484,12 @@
           cards.push(bc);
         }
       }
+      /* an integer answer also says what kind of number it is */
+      var ic = intCard(val);
+      if (ic) {
+        if (cards.some(function (c) { return c.t === 'base'; })) { ic.hex = null; ic.bin = null; } // the base card already has them
+        cards.push(ic);
+      }
       var short = mainCard.exact + (mainCard.approx ? ' ≈ ' + mainCard.approx : '');
       return { ok: true, kindOf: 'math', cards: cards, text: short, replay: plainNum(val),
                ans: val.k === 'q' ? { k: 'q', v: val.v, dim: val.dim, ue: val.ue } : val };
@@ -1413,6 +1518,6 @@
     evaluate: evaluate,
     parseTree: parseTree,
     /* exposed for tests */
-    _internals: { tokenize: tokenize, fmtF: fmtF, closedForm: closedForm, lookupUnit: lookupUnit }
+    _internals: { tokenize: tokenize, fmtF: fmtF, closedForm: closedForm, lookupUnit: lookupUnit, factorBig: factorBig, isProbablePrime: isProbablePrime }
   };
 });

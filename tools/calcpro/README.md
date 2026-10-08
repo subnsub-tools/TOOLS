@@ -25,7 +25,8 @@ CalcPro.evaluate('today + 90 days', { now: Date.now() });
 
 - `{ ok: true, kindOf: 'math'|'date', text, cards, ans }` — `cards` is a
   render-ready list (`main` with exact/approx/note/full, `closed`, `base`
-  with hex/dec/oct/bin rows, `units` with an also-equal-to table, `date`),
+  with hex/dec/oct/bin rows, `units` with an also-equal-to table, `int`
+  for an integer answer, `date`),
   `ans` is an opaque value to pass back for chaining; or
 - `{ ok: false, kind: 'syntax'|'math', msg }` — `syntax` means the input
   is likely mid-typing (UIs should stay quiet), `math` is a real error
@@ -46,6 +47,21 @@ CalcPro.evaluate('today + 90 days', { now: Date.now() });
 - **Closed-form detection** — floats are reverse-matched against π, √n,
   small rationals, e, φ, ln 2, ln 10 families (relative tolerance 1e-14)
   and surfaced as a "possible closed form" card.
+- **What kind of integer** — an integer answer with |n| ≥ 2 (up to 512
+  bits) gets an `int` card: `prime`, `probable`, `factors` as `[[p, e], …]`
+  strings, `divisors` (the count, when fully factored), `digits`,
+  `digitSum`, and `hex`/`bin` while short (left out when a `base` card
+  already has them). A prime is positive: −13 is `prime: false` with
+  factors `[['13', 1]]` and `neg: true`.
+  Trial division by the primes under 10,000, then Miller–Rabin and
+  Pollard–Brent rho under a fixed step budget, so live typing never stalls:
+  what the budget cannot split comes back as `rest`, a composite named as
+  such — RSA-100 returns in well under a tenth of a second, unsplit.
+  Miller–Rabin on the first 13 primes is a proof below
+  ψ13 = 3,317,044,064,679,887,385,961,981, which is itself a strong
+  pseudoprime to all 13 (base 43 exposes it). At or above it the test runs
+  on the first 20 primes and any prime it reports — the answer itself or a
+  factor — is only probable: `probable: true`.
 
 ## Conventions (deliberate choices)
 
