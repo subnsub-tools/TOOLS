@@ -9,56 +9,77 @@
   table { border-collapse: collapse; margin-top: .5rem; }
   td { padding: .15rem .75rem .15rem 0; font-variant-numeric: tabular-nums; }
   .err { color: #b00020; }
+  .note { color: #8a6d00; }
   #human { font-weight: 600; }
+  pre { background: #f4f4f4; padding: .6rem; white-space: pre-wrap; }
 </style>
 
 <h1>Cron Expression — demo</h1>
-<p>Classic 5-field cron (<code>minute hour day month weekday</code>) —
-plain-language description plus the next 10 local-time runs.</p>
+<p>Classic 5-field cron (<code>minute hour day month weekday</code>), month and
+weekday names, <code>@daily</code>-style shortcuts — a plain-language
+description, the next 10 runs in a time zone, and how often it fires.</p>
 
 <label>Expression</label>
-<input id="in" spellcheck="false" autocomplete="off" value="*/15 * * * *">
+<input id="in" spellcheck="false" autocomplete="off" value="*/15 9-17 * * MON-FRI">
+<label>Time zone (IANA, empty = this device)</label>
+<input id="tz" spellcheck="false" autocomplete="off" placeholder="Europe/Berlin">
 <p>
   <button data-cron="* * * * *">every minute</button>
-  <button data-cron="*/15 * * * *">every 15 min</button>
-  <button data-cron="0 * * * *">hourly</button>
-  <button data-cron="0 0 * * *">daily</button>
-  <button data-cron="0 9 * * 1-5">9:00 weekdays</button>
-  <button data-cron="0 0 1 * *">monthly</button>
+  <button data-cron="0 9 * * MON-FRI">9:00 weekdays</button>
+  <button data-cron="0 0 1 * MON">day 1 or Monday</button>
+  <button data-cron="30 2 * * *">02:30 daily (try Europe/Berlin)</button>
+  <button data-cron="@weekly">@weekly</button>
+  <button data-cron="0 0 31 2 *">never</button>
 </p>
 
 <p id="human">—</p>
 <p id="err" class="err"></p>
 <table id="runs"></table>
+<pre id="stats">—</pre>
 
 <script type="module">
-  import { cronDescribe, cronNext, cronRelative } from './cron-parse.js';
+  import { cronParse, cronDescribe, cronRuns, cronStats, cronRelative } from './cron-parse.js';
 
   const $ = (id) => document.getElementById(id);
+  const zoneOk = (z) => { if (!z) return true; try { new Intl.DateTimeFormat('en', { timeZone: z }); return true; } catch (_) { return false; } };
+  const span = (ms) => ms == null ? '—' : ms >= 86400000 ? (ms / 86400000).toFixed(2) + ' d' : ms >= 3600000 ? (ms / 3600000).toFixed(2) + ' h' : (ms / 60000) + ' min';
 
-  function run(){
-    const v = $('in').value.trim();
-    $('err').textContent = '';
-    $('runs').textContent = '';
-    if (!v) { $('human').textContent = '—'; return; }
-    if (v.split(/\s+/).length !== 5) {
+  function run() {
+    const v = $('in').value, tz = zoneOk($('tz').value.trim()) ? $('tz').value.trim() : '';
+    $('err').textContent = ''; $('runs').textContent = ''; $('stats').textContent = '—';
+    const p = cronParse(v);
+    if (!p.ok) {
       $('human').textContent = '—';
-      $('err').textContent = 'Expected 5 fields: minute hour day month weekday';
+      const e = p.error;
+      $('err').textContent = `${e.code}${e.field ? ' in ' + e.field : ''}${e.token ? ': ' + e.token : ''}`;
       return;
     }
-    $('human').textContent = cronDescribe(v) || v;
-    for (const [i, d] of cronNext(v, 10).entries()) {
+    $('human').textContent = cronDescribe(p);
+    const fmt = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone: tz || undefined });
+    for (const [i, r] of cronRuns(p, 10, Date.now(), tz).entries()) {
       const tr = document.createElement('tr');
-      for (const text of [i + 1, d.toLocaleString(), cronRelative(d)]) {
+      const note = r.gap ? 'skipped by the clock change — runs at the switch' : r.fold ? 'this hour repeats — runs once'
+        : r.again ? 'this hour repeats — a wildcard job runs again' : '';
+      for (const [text, cls] of [[i + 1], [fmt.format(new Date(r.ms))], [cronRelative(r.ms)], [note, 'note']]) {
         const td = document.createElement('td');
         td.textContent = text;
+        if (cls) td.className = cls;
         tr.appendChild(td);
       }
       $('runs').appendChild(tr);
     }
+    const s = cronStats(p, Date.now(), tz);
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const busiest = s.heat.flatMap((row, d) => row.map((n, h) => [n, days[d] + ' ' + String(h).padStart(2, '0') + ':00'])).sort((a, b) => b[0] - a[0])[0];
+    $('stats').textContent =
+      `Next 30 days   ${s.runs} runs (${s.perDay.toFixed(2)} a day)\n` +
+      `Shortest gap   ${span(s.minGap)}\n` +
+      `Longest gap    ${span(s.maxGap)}\n` +
+      `Busiest hour   ${busiest && busiest[0] ? busiest[1] + ' (' + busiest[0] + ' in four weeks)' : '—'}`;
   }
 
   $('in').addEventListener('input', run);
+  $('tz').addEventListener('input', run);
   document.querySelectorAll('[data-cron]').forEach((b) =>
     b.addEventListener('click', () => { $('in').value = b.dataset.cron; run(); }));
   run();

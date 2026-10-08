@@ -55,7 +55,7 @@ about shapes:
 | [Coin](tools/coin/) | `coin-flip.js` | Fair coin flip + streak bookkeeping. |
 | [Timer](tools/timer/) | `timer-engine.js` | Timer / stopwatch / clock engine — drift-corrected, pause-safe. |
 | [Unix](tools/unix/) | `unix-time.js` | Unix timestamp ↔ date conversion. |
-| [Cron](tools/cron/) | `cron-parse.js` | Cron expression parser + next-run computation. |
+| [Cron](tools/cron/) | `cron-parse.js` | Cron parser — names and shortcuts, errors that name the field, Vixie's day rule, runs in any time zone across clock changes, and how often it fires. |
 | [Calendar](tools/calendar/) | `calendar-context.js` | The date context the Calendar lays over its grid — ISO weeks, Moon phases, equinoxes and solstices, clock changes, public-holiday feeds folded into days off. |
 | [Currency](tools/fx/) | `fx-convert.js` | Cross-rate math over a USD-base rate table, plus the history model — range stats, day move, sparkline path, majors and conversion ladders. |
 | [Stocks](tools/stocks/) | `stock-quotes.js` | Quote payload normalisation, change math, sparkline shaping. |
