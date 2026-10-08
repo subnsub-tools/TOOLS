@@ -1,7 +1,9 @@
 /* Countdown / stopwatch / clock engines — the timekeeping engine of the
    Timer tab on subnsub.com, kept in lockstep with the in-page version.
    (That tab's other widgets — pomodoro, alarms, world clock, day counter —
-   are UI built around these same primitives and stay on the site.)
+   are UI built around these same primitives and stay on the site; the two
+   readings they add, the fastest and slowest laps and a zone against this
+   device, are here as lapExtremes() and zoneRelative().)
 
    Time model (identical to the site's shared requestAnimationFrame loop):
    - The host drives every engine with tick(now), where `now` is a
@@ -171,6 +173,22 @@ export function createStopwatch() {
   };
 }
 
+/* The fastest and slowest laps, as the site marks them: from the third lap
+   on, compared as shown (fmtSW's tenths), so two laps that read the same
+   are the same; when every lap reads the same nothing is marked. Takes the
+   stopwatch's laps() (or any { n, split } list) and returns the lap
+   numbers: { best: [n…], worst: [n…] } — ties keep every lap that ties. */
+export function lapExtremes(laps) {
+  const list = Array.isArray(laps) ? laps : [];
+  const tenths = list.map(l => Math.floor(l.split * 10));
+  const lo = Math.min(...tenths), hi = Math.max(...tenths);
+  if (list.length < 3 || !(hi > lo)) return { best: [], worst: [] };
+  return {
+    best: list.filter((l, i) => tenths[i] === lo).map(l => l.n),
+    worst: list.filter((l, i) => tenths[i] === hi).map(l => l.n),
+  };
+}
+
 /* ── clock ── */
 
 /* The locale's own 12/24-hour habit — what the site defaults to when the
@@ -232,4 +250,37 @@ export function createClock(opts = {}) {
   }
 
   return { read, hour12: ckH12, timeZone: ckTz };
+}
+
+/* ── a zone against this device ──
+   How far a time zone's wall clock is from this device's, and whether its
+   date has turned — the line each World Clock city carries on the site.
+   Both wall clocks are read as if they were UTC and subtracted, so
+   daylight saving on either side is simply part of the reading.
+     → { minutes: +420 (ahead) / −360 (behind) / 0, days: 1 | 0 | −1 … }
+   or null for a zone the engine does not know. `days` compares calendar
+   dates; the site words ±1 as "tomorrow" / "yesterday". */
+const wallFmts = new Map();
+export function zoneRelative(tz, now = new Date()) {
+  let f = wallFmts.get(tz);
+  if (!f) {
+    try {
+      f = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' });
+    } catch (_) { return null; }
+    wallFmts.set(tz, f);
+  }
+  const p = {};
+  for (const x of f.formatToParts(now)) p[x.type] = x.value;
+  const there = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute);
+  const here = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours(), now.getMinutes());
+  return {
+    minutes: Math.round((there - here) / 60000),
+    days: Math.floor(there / 86400000) - Math.floor(here / 86400000),
+  };
+}
+
+/* "7", "3:30", "5:45" — an hour difference the way the site prints it */
+export function fmtHours(minutes) {
+  const a = Math.abs(minutes);
+  return Math.floor(a / 60) + (a % 60 ? ':' + String(a % 60).padStart(2, '0') : '');
 }

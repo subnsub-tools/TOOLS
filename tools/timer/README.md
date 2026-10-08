@@ -6,12 +6,15 @@ engines behind the widgets are auditable. Everything visual on that tab
 (the morphing pills, the superellipse progress ring, the minute wheel) is
 UI around these engines; the tab's other widgets — pomodoro, alarms, world
 clock, day counter — are built on the same primitives and stay on the site.
+Two readings they add are here too: which laps were fastest and slowest,
+and how far a time zone is from this device.
 
 ## Files
 
 - [`timer-engine.js`](timer-engine.js) — the module: `createCountdown()`,
   `createStopwatch()`, `createClock()`, plus `fmtMS()`, `fmtSW()`,
-  `localeHour12()`, `systemZone()`
+  `localeHour12()`, `systemZone()`, `lapExtremes()`, `zoneRelative()`,
+  `fmtHours()`
 - [`demo.html`](demo.html) — minimal standalone page driving all three
   engines from one requestAnimationFrame loop
 
@@ -49,6 +52,13 @@ requestAnimationFrame(frame);
 // Clock — formatting only; call read() once a second (or per frame)
 const clock = createClock({ locale: 'en', hour12: localeHour12('en') });
 clock.read();                        // { time: '3:07:42', dayPeriod: 'PM', date: 'Mon, Jul 13' }
+
+// Fastest and slowest laps — from the third lap, compared in tenths as shown
+lapExtremes(sw.laps());              // { best: [3], worst: [2] } (lap numbers; ties keep all)
+
+// A zone against this device (here: 22:00 in Berlin)
+zoneRelative('Asia/Tokyo');          // { minutes: 420, days: 1 }  → "7 h ahead · tomorrow"
+zoneRelative('Asia/Kolkata');        // { minutes: 210, days: 1 }  → fmtHours(210) = '3:30'
 ```
 
 ## Time model — the part that must not drift
@@ -91,3 +101,11 @@ clock.read();                        // { time: '3:07:42', dayPeriod: 'PM', date
 - `createClock` is Intl end to end: an invalid `timeZone` falls back to
   the system clock, an invalid `locale` to the runtime default — same
   fallbacks as the site.
+- `lapExtremes()` marks nothing before the third lap, or when every lap
+  reads the same in tenths: "fastest" means something only against a
+  slower lap.
+- `zoneRelative()` reads both wall clocks and subtracts them, so daylight
+  saving on either side is simply part of the answer; `days` compares
+  calendar dates (the site words ±1 as "tomorrow" / "yesterday"). An
+  unknown zone returns `null`. Re-read it each minute — offsets change at
+  every clock change.

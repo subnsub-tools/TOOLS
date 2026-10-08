@@ -9,6 +9,8 @@
   #cd-state, #ck-zone { color: #666; }
   ol { padding-left: 1.5rem; }
   li { font-variant-numeric: tabular-nums; }
+  li.best { color: #15803d; }
+  li.worst { color: #b91c1c; }
 </style>
 
 <h1>Timer / Stopwatch / Clock — demo</h1>
@@ -45,10 +47,17 @@ wall-clock catch-up.</p>
   <p id="ck-zone"></p>
 </section>
 
+<section>
+  <h2>A zone against this device</h2>
+  <label>Time zone <input type="text" id="rel-tz" value="Asia/Tokyo" size="18"></label>
+  <p id="rel-out">–</p>
+</section>
+
 <script type="module">
   import {
     createCountdown, createStopwatch, createClock,
     fmtMS, fmtSW, localeHour12, systemZone,
+    lapExtremes, zoneRelative, fmtHours,
   } from './timer-engine.js';
 
   const $ = (id) => document.getElementById(id);
@@ -79,6 +88,12 @@ wall-clock catch-up.</p>
     li.value = entry.n;
     li.textContent = '+' + fmtSW(entry.split) + '  (' + fmtSW(entry.total) + ')';
     $('sw-laps').prepend(li);
+    /* fastest / slowest, from the third lap on */
+    const { best, worst } = lapExtremes(sw.laps());
+    for (const el of $('sw-laps').children) {
+      el.classList.toggle('best', best.includes(el.value));
+      el.classList.toggle('worst', worst.includes(el.value));
+    }
   };
   $('sw-reset').onclick = () => {
     sw.reset();
@@ -94,6 +109,18 @@ wall-clock catch-up.</p>
   $('ck-h12').checked = localeHour12();
   $('ck-apply').onclick = buildClock;
   buildClock();
+
+  /* a zone against this device — once a second is plenty */
+  function rel() {
+    const tz = $('rel-tz').value.trim();
+    const r = zoneRelative(tz);
+    if (!r) { $('rel-out').textContent = 'unknown zone'; return; }
+    const off = r.minutes === 0 ? 'same time' : fmtHours(r.minutes) + ' h ' + (r.minutes > 0 ? 'ahead' : 'behind');
+    $('rel-out').textContent = off + (r.days === 1 ? ' · tomorrow' : r.days === -1 ? ' · yesterday' : '');
+  }
+  $('rel-tz').oninput = rel;
+  rel();
+  setInterval(rel, 1000);
 
   /* one frame loop drives everything — engines require ticking through pauses */
   function frame(now) {

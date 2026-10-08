@@ -53,7 +53,7 @@ about shapes:
 | [Password](tools/pwd/) | `password-gen.js` | Crypto-random password generation. |
 | [Random](tools/random/) | `random-gen.js` | Uniform crypto-random integers, floats, samples. |
 | [Coin](tools/coin/) | `coin-flip.js` | Fair coin flip + streak bookkeeping. |
-| [Timer](tools/timer/) | `timer-engine.js` | Timer / stopwatch / clock engine — drift-corrected, pause-safe. |
+| [Timer](tools/timer/) | `timer-engine.js` | Timer / stopwatch / clock engine — drift-corrected, pause-safe; the fastest and slowest laps, and a time zone against this device. |
 | [Unix](tools/unix/) | `unix-time.js` | Unix timestamp ↔ date conversion; the same instant in other zones and formats (FILETIME, .NET ticks, Excel, NTP, GPS, Julian Day…), its ISO week and next clock change, and the round numbers ahead. |
 | [Cron](tools/cron/) | `cron-parse.js` | Cron parser — names and shortcuts, errors that name the field, Vixie's day rule, runs in any time zone across clock changes, and how often it fires. |
 | [Calendar](tools/calendar/) | `calendar-context.js` | The date context the Calendar lays over its grid — ISO weeks, Moon phases, equinoxes and solstices, clock changes, public-holiday feeds folded into days off. |
