@@ -349,7 +349,9 @@ export function isTextDocument(name, type, size){
    a NUL byte or invalid UTF-8 means this is not text that can be faithfully
    re-encoded from a textarea, so the editor must not open at all. Returns
    null in that case (an empty document decodes to '', which is distinct).
-   Takes an ArrayBuffer or a Uint8Array. */
+   A leading UTF-8 BOM is dropped, as the site's editor path drops it: the
+   re-shared copy is written without one. Takes an ArrayBuffer or a
+   Uint8Array. */
 export function decodeTextBytes(buf){
   const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
   if(bytes.includes(0)) return null;

@@ -298,7 +298,11 @@ export function assessNatMapping(R){
     return R.hosts4<=1?'dependent':'unsure';
   }
   /* One mapped endpoint. That only means endpoint-independent if both
-     destinations actually replied — otherwise nothing was compared. */
+     destinations actually replied — otherwise nothing was compared. The
+     proof is the two side sockets', not this socket's: ICE folds the
+     main socket's replies into one candidate, so a reply from one server
+     that was lost on the main socket alone cannot be told from a stable
+     mapping. That residual case reads 'independent' here as on the site. */
   return (R.okMain&&R.okAlt)?'independent':'unsure';
 }
 

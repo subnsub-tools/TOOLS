@@ -611,9 +611,17 @@ export const SAME_PLACE_DEG = 0.05;
    numeric STRINGS (a hand-edited export), and the global isFinite('35.68')
    says true, so they are coerced here; out-of-range values are dropped
    rather than clamped — they are not a place. */
+/* A number, or a NON-BLANK numeric string; '' and whitespace coerce to 0
+   under Number(), which would plant every blank favourite at (0, 0) and
+   fold them into one. Booleans and other types are not coordinates. */
+function coordNum(v){
+  if (typeof v === 'number') return v;
+  if (typeof v === 'string' && v.trim()) return Number(v);
+  return NaN;
+}
 export function coordsOf(p){
   if (!p || p.lat == null || p.lon == null) return null;
-  const la = Number(p.lat), lo = Number(p.lon);
+  const la = coordNum(p.lat), lo = coordNum(p.lon);
   if (!isFinite(la) || !isFinite(lo) || la < -90 || la > 90 || lo < -180 || lo > 180) return null;
   return { lat: la, lon: lo };
 }

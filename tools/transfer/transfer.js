@@ -720,7 +720,13 @@ class Peer {
         this._fallback('failed');
         const restarted = this._adoptRelay();
         if (restarted && !this._fb) this._shareRelay();   /* receiver side (nothing to send): a credential WE hold is installed and offered back */
-        if (!restarted) { try { pc.restartIce(); } catch {} }
+        if (!restarted) {
+          try { pc.restartIce(); } catch {}
+          /* Receiver side with relay entries of its own but nothing cached
+             yet (the sender never ran _fallback for it): fetch now and offer
+             the credential back, the same as the cached case above. */
+          if (!this._fb && this.app.relayIceServers) this.app._relayFetch().then((ok) => { if (ok && this.pc === pc && !this.connected && !pc._relayCfg && this._adoptRelay()) this._shareRelay(); }).catch(() => {});
+        }
         this.app.ui.peerState(this.id, (this._fb && !this._fbDead()) ? 'connecting' : 'failed');
       }
     };
@@ -993,7 +999,7 @@ class Peer {
              flight. A raced receive finishes on its own mark instead, and
              its receipt is what ends this send. The one file with no mark
              to reach is the empty one, which has no frames to overtake. */
-          if (!item.file.size && item.status === 'sending') { try { dc.send(JSON.stringify({ t: 'done', id: item.id })); } catch {} }
+          if (startOff >= item.file.size && item.status === 'sending') { try { dc.send(JSON.stringify({ t: 'done', id: item.id })); } catch {} }   /* …and a re-offer the receiver had already completed (ready came back with off == size): no frames go out, so `done` is the only thing that can draw its re-ack */
           await Promise.race([settled, ack]);
           item._won = true; item._settle = null;
           if (!acked && !item._ok) throw new Error('aborted');   /* every road died mid-file — the close handler parks it for resume */
