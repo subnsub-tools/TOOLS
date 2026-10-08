@@ -40,10 +40,22 @@ with WebRTC.</p>
 <button id="asnbtn">Classify</button>
 <span id="asnout"></span>
 
+<h2>An IPv6 address, read apart</h2>
+<label>IPv6 address <input id="v6" value="2001:db8:1:2:21a:2bff:fe3c:4d5e" size="40"></label>
+<button id="v6btn">Read</button>
+<span id="v6out"></span>
+
+<h2>Key exchange of a connection</h2>
+<label>Body of <code>/cdn-cgi/trace</code> (any Cloudflare-served site) or a bare group name
+<input id="kex" value="kex=X25519MLKEM768" size="40"></label>
+<button id="kexbtn">Read</button>
+<span id="kexout"></span>
+
 <script type="module">
   import {
     detectWebRTCAddresses, assessExposure, assessNatMapping,
     classifyCandidateAddress, parseCandidate, classifyASN,
+    ipv6Anatomy, parseTrace, kexInfo,
   } from './ip-exposure.js';
 
   const $ = (id) => document.getElementById(id);
@@ -81,6 +93,20 @@ with WebRTC.</p>
   $('candbtn').onclick = () => {
     const r = parseCandidate($('cand').value.trim());
     $('candout').textContent = r === null ? 'null (too short)' : JSON.stringify(r);
+  };
+
+  const IID = { eui64: 'from the MAC address', random: 'random', assigned: 'an assigned number',
+    teredo: 'Teredo tunnel', '6to4': '6to4 tunnel', isatap: 'ISATAP tunnel' };
+  $('v6btn').onclick = () => {
+    const a = ipv6Anatomy($('v6').value.trim());
+    $('v6out').textContent = a === null ? 'null (not an IPv6 address)'
+      : [a.prefix ? 'network ' + a.prefix : '', 'interface ID: ' + IID[a.iid], a.mac ? 'MAC ' + a.mac : '', a.v4 ? 'IPv4 ' + a.v4 : ''].filter(Boolean).join(' · ');
+  };
+
+  $('kexbtn').onclick = () => {
+    const v = $('kex').value.trim();
+    const k = kexInfo(v.includes('=') ? parseTrace(v).kex : v);
+    $('kexout').textContent = k === null ? 'no key-exchange group named' : k.name + ' — ' + (k.pq ? 'post-quantum' : 'classical');
   };
 
   $('asnbtn').onclick = () => {

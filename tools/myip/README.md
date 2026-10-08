@@ -8,13 +8,17 @@ WebRTC is leaking an egress address the rest of your traffic hides, and
 read the NAT's mapping behaviour off the same candidates. Published so
 the verdict logic, the "this probe sends no user data" claim and the
 list of things the NAT reading refuses to claim are all auditable.
+Beside it, two pure readers from the same tab: an IPv6 address read
+apart (does its interface identifier carry the device's MAC?) and the
+connection's key exchange (post-quantum or not).
 
 ## Files
 
 - [`ip-exposure.js`](ip-exposure.js) — the module:
   `detectWebRTCAddresses()`, `parseCandidate()`,
   `classifyCandidateAddress()`, `assessExposure()`, `assessNatMapping()`,
-  `classifyASN()`, plus the constants `STUN_MAIN`, `STUN_ALT`,
+  `classifyASN()`, `ipv6Anatomy()`, `ipv6Words()`, `ipv6Text()`,
+  `parseTrace()`, `kexInfo()`, plus the constants `STUN_MAIN`, `STUN_ALT`,
   `DEFAULT_ICE_SERVERS`, `GATHER_TIMEOUT_MS`
 - [`demo.html`](demo.html) — minimal standalone page exercising the module
 
@@ -46,6 +50,13 @@ classifyCandidateAddress('2001:db8::1');  // 'pub'
 parseCandidate('candidate:1 1 udp 1 203.0.113.7 51234 typ srflx raddr 192.168.1.10 rport 51234');
 // → { proto:'udp', addr:'203.0.113.7', port:51234, typ:'srflx', raddr:'192.168.1.10', rport:51234 }
 classifyASN('Mullvad VPN AB', 0);         // { type: 'VPN / Proxy', c: 'r' }
+
+ipv6Anatomy('2001:db8:1:2:21a:2bff:fe3c:4d5e');
+// → { prefix: '2001:db8:1:2::/64', iid: 'eui64', mac: '00:1a:2b:3c:4d:5e' }
+ipv6Anatomy('2002:c000:204::1');          // { iid: '6to4', v4: '192.0.2.4' }
+
+const trace = await (await fetch('/cdn-cgi/trace')).text();   // on a Cloudflare-served origin
+kexInfo(parseTrace(trace).kex);           // { name: 'X25519MLKEM768', pq: true }
 ```
 
 Requires a browser — `RTCPeerConnection` has no server-side equivalent.
@@ -120,9 +131,46 @@ What it deliberately does **not** say:
   IPv4 one, and a browser policy or a silent STUN server looks identical.
   Silence is reported as "no STUN reply", never promoted to "blocked".
 
+## An IPv6 address, read apart
+
+`ipv6Anatomy(address)` splits an IPv6 address the way it was built and
+returns `null` for anything else (a zone suffix such as `%en0` is
+dropped):
+
+- **`prefix`** — the `/64` in RFC 5952 text: the network's half, the same
+  for every device behind that router.
+- **`iid`** — how the interface identifier, the device's half, was made:
+  - `eui64` — `ff:fe` in the middle: modified EUI-64, the hardware MAC
+    with its universal/local bit flipped. The same identifier follows the
+    device to every network it joins; `mac` gives the address it came
+    from.
+  - `random` — a privacy (RFC 8981) or stable-private (RFC 7217)
+    identifier. One sample cannot tell those two apart, so it does not
+    try.
+  - `assigned` — the top 32 bits are zero (`::1`, `::2a`, `::c000:201`):
+    handed out by a person or a DHCPv6 server.
+  - `teredo` (`2001::/32`), `6to4` (`2002::/16`, with the IPv4 address the
+    prefix carries in `v4`) and `isatap` (`…:5efe:…`) — tunnels, named as
+    such. Teredo and 6to4 return no `prefix`: their upper bits describe
+    the tunnel, not a network.
+
+`ipv6Words()` and `ipv6Text()` are the parser and the RFC 5952 formatter
+underneath.
+
+## Key exchange
+
+Cloudflare's `/cdn-cgi/trace` names the key-exchange group the TLS (or
+QUIC) handshake agreed on as `kex=`. `parseTrace()` turns the body into an
+object; `kexInfo(name)` returns `{ name, pq }`, where `pq` is true for an
+ML-KEM hybrid or the Kyber drafts before it — session keys that stay safe
+from traffic recorded today and decrypted once a large quantum computer
+exists. X25519 or a P-curve alone reads `pq: false`. No `kex` field gives
+`null`.
+
 ## Network use & privacy
 
-The module performs no fetches and transmits no user data. The only
+The module performs no fetches and transmits no user data
+(`parseTrace()` reads a body the caller fetched). The only
 network side effect is the STUN binding requests implied by the default
 ICE configuration: three short-lived connections (main leg to
 `stun:stun.l.google.com:19302` and `stun:stun.cloudflare.com:3478`, plus
@@ -141,5 +189,8 @@ as `publicIp`. The same result drives the UDP and NAT Mapping rows via
 `anySrflx` and `assessNatMapping()`. The site version additionally runs
 a server-side IP reputation lookup (`/api/iprep`, membership checks
 against public blocklists compiled server-side) — a server component,
-deliberately not part of this module. `classifyASN()` is the client-side
-network-type classifier both views share.
+deliberately not part of this module; under its rows the tab lists each
+blocklist's size and the age of the copy checked. `classifyASN()` is the
+client-side network-type classifier both views share; `ipv6Anatomy()`
+reads the IPv6 Readiness card's address and `kexInfo()` the Connection
+card's trace.

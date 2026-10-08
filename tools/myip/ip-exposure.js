@@ -32,7 +32,13 @@
    Requires a browser: RTCPeerConnection has no server-side equivalent.
    Environments without it (or with WebRTC disabled) resolve to empty
    results with supported:false, which the verdict reports as
-   'unavailable'. */
+   'unavailable'.
+
+   Two pure readers sit beside the probe, also as on the tab: an IPv6
+   address read apart (its /64, and whether the interface identifier
+   carries the device's MAC address), and the key-exchange group a
+   Cloudflare trace reports, post-quantum or not. Neither touches the
+   network. */
 
 /* STUN servers, same two as the in-page probe. The main leg talks to
    both; the alternate is what makes the mapping comparison possible.
@@ -341,4 +347,129 @@ export function classifyASN(org,asn){
   if(/government|defense|military|federal|ministry/.test(o))return{type:'Government',c:'g'};
   if(/mobile|wireless|cellular|vodafone|t-mobile|sprint/.test(o))return{type:'Mobile ISP',c:'g'};
   return{type:'ISP',c:'g'};
+}
+
+/* ── an IPv6 address, read apart ─────────────────────────────────────
+   The first 64 bits are the network's: the same for every device behind
+   that router, and kept for as long as the provider keeps them. The last
+   64 are this device's interface identifier, and how they were made
+   matters. ff:fe in the middle is modified EUI-64, the hardware MAC with
+   its universal/local bit flipped, so the same identifier follows the
+   device to every network it joins. Random-looking bits are a privacy
+   (RFC 8981) or stable-private (RFC 7217) identifier; one sample cannot
+   tell those two apart, so the reading does not try. An identifier whose
+   top 32 bits are zero (::1, ::2a, ::c000:201) was handed out by a
+   person or a DHCPv6 server. Teredo (2001::/32), 6to4 (2002::/16) and
+   ISATAP (…:5efe:…) are tunnels, named as such; 6to4 carries its IPv4
+   address in bits 16–47. */
+
+/* Structural check, not a full RFC 4291 parser: at most one '::', 1-4
+   hex digits per group, a dotted quad allowed only as the last group
+   (worth two), and exactly 8 groups — fewer only under '::'. */
+function isV4Text(s){
+  var m=s.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  return !!m && +m[1]<256 && +m[2]<256 && +m[3]<256 && +m[4]<256;
+}
+function isV6Text(s){
+  if(s.indexOf(':')<0) return false;
+  var dc=s.indexOf('::');
+  if(dc>=0 && s.indexOf('::',dc+1)>=0) return false;
+  var halves=dc>=0 ? [s.slice(0,dc), s.slice(dc+2)] : [s];
+  var groups=[], h, i;
+  for(h=0;h<halves.length;h++){
+    if(halves[h]==='') continue;
+    var parts=halves[h].split(':');
+    for(i=0;i<parts.length;i++){
+      if(parts[i]==='') return false;
+      groups.push(parts[i]);
+    }
+  }
+  var n=0;
+  for(i=0;i<groups.length;i++){
+    if(i===groups.length-1 && groups[i].indexOf('.')>=0){
+      if(!isV4Text(groups[i])) return false;
+      n+=2;
+    } else {
+      if(!/^[0-9a-fA-F]{1,4}$/.test(groups[i])) return false;
+      n+=1;
+    }
+  }
+  return dc>=0 ? n<=7 : n===8;
+}
+
+/* The eight 16-bit words of an IPv6 address, or null when it is not one.
+   A zone suffix (%eth0) is dropped; a trailing dotted quad is folded in. */
+export function ipv6Words(s){
+  s=String(s||'').toLowerCase();
+  var z=s.indexOf('%'); if(z>=0) s=s.slice(0,z);
+  if(!isV6Text(s)) return null;
+  var m=s.match(/:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  /* a dotted quad only ends an address: "192.0.2.1::" is not one */
+  if(!m&&s.indexOf('.')>=0) return null;
+  if(m){
+    var q=m[1].split('.').map(Number);
+    s=s.slice(0,-m[1].length)+((q[0]<<8|q[1]).toString(16))+':'+((q[2]<<8|q[3]).toString(16));
+  }
+  var halves=s.split('::'), head=halves[0]?halves[0].split(':'):[], tail=halves.length>1&&halves[1]?halves[1].split(':'):[];
+  var fill=halves.length>1?8-head.length-tail.length:0;
+  var w=head.concat(Array(fill).fill('0'),tail).map(function(g){ return parseInt(g,16); });
+  return w.length===8?w:null;
+}
+
+/* RFC 5952 text: lower-case, no leading zeros, the longest run of two or
+   more zero words (the first, on a tie) written as "::". */
+export function ipv6Text(w){
+  var best=-1, len=0, i, j;
+  for(i=0;i<8;i++){
+    if(w[i]!==0) continue;
+    for(j=i;j<8&&w[j]===0;j++);
+    if(j-i>len&&j-i>1){ best=i; len=j-i; }
+    i=j;
+  }
+  var h=w.map(function(n){ return n.toString(16); });
+  if(best<0) return h.join(':');
+  return h.slice(0,best).join(':')+'::'+h.slice(best+len).join(':');
+}
+
+/* { prefix, iid, mac?, v4? } or null for anything that is not IPv6.
+   prefix  the /64 in RFC 5952 text (absent for Teredo and 6to4, whose
+           upper bits describe the tunnel, not a network)
+   iid     'eui64' | 'random' | 'assigned' | 'teredo' | '6to4' | 'isatap'
+   mac     with 'eui64': the hardware address the identifier was built from
+   v4      with '6to4': the IPv4 address the prefix carries */
+export function ipv6Anatomy(ip){
+  var w=ipv6Words(ip); if(!w) return null;
+  if(w[0]===0x2001&&w[1]===0) return {iid:'teredo'};
+  if(w[0]===0x2002) return {iid:'6to4', v4:[w[1]>>8,w[1]&255,w[2]>>8,w[2]&255].join('.')};
+  var out={prefix:ipv6Text(w.slice(0,4).concat([0,0,0,0]))+'/64'};
+  var b=[w[4]>>8,w[4]&255,w[5]>>8,w[5]&255,w[6]>>8,w[6]&255,w[7]>>8,w[7]&255];
+  if((w[4]&0xfdff)===0&&w[5]===0x5efe) out.iid='isatap';
+  else if(b[3]===0xff&&b[4]===0xfe){
+    out.iid='eui64';
+    out.mac=[b[0]^2,b[1],b[2],b[5],b[6],b[7]].map(function(n){ return (n<16?'0':'')+n.toString(16); }).join(':');
+  }
+  else if(w[4]===0&&w[5]===0) out.iid='assigned';
+  else out.iid='random';
+  return out;
+}
+
+/* ── the connection's key exchange ───────────────────────────────────
+   Cloudflare's /cdn-cgi/trace names the key-exchange group the TLS (or
+   QUIC) handshake agreed on, as kex=. A hybrid with ML-KEM, or the Kyber
+   drafts before it, keeps the session keys safe from traffic recorded
+   today and decrypted once a large quantum computer exists; X25519 or a
+   P-curve alone does not. */
+
+/* The trace body's key=value lines as an object. */
+export function parseTrace(text){
+  var kv={};
+  String(text||'').split('\n').forEach(function(l){ var i=l.indexOf('='); if(i>0) kv[l.slice(0,i)]=l.slice(i+1).trim(); });
+  return kv;
+}
+
+/* { name, pq } for a key-exchange group name, or null when there is none. */
+export function kexInfo(name){
+  var s=String(name||'').trim();
+  if(!s||s.length>64) return null;
+  return {name:s, pq:/mlkem|kyber/i.test(s)};
 }
