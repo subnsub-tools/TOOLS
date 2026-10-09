@@ -76,18 +76,6 @@ python3 -m http.server 8000
 # → http://localhost:8000/tools/totp/demo.html
 ```
 
-## What this repo is (and isn't)
-
-- **It is the auditable logic**: parsers, crypto, converters, protocol
-  engines, and the guards around them.
-- **It is not the site.** The UI shell, design system, i18n, accounts and
-  server functions of subnsub.com are not part of this repository. The
-  demo pages here are deliberately unstyled.
-- Third-party engines the site vendors (jsQR for QR scanning,
-  @cloudflare/speedtest for bandwidth measurement, pdf-lib, …) are not
-  re-published here; each tool README declares what it builds on and
-  under which license.
-
 ## Contributing
 
 These are the site's built-in tools, so this repo doesn't run a
